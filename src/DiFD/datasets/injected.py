@@ -1,8 +1,8 @@
 """Injected dataset container.
 
 This module defines the InjectedDataset class which is the output of
-the injection pipeline. It stores the full injected DataFrame and defers
-windowing and train/test splitting to downstream consumers (trainer).
+the injection pipeline. It stores the full injected DataFrame and provides
+a ``.prepare()`` method for windowed train/val/test splitting.
 """
 
 from __future__ import annotations
@@ -13,11 +13,18 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 from rich.console import Console
 from rich.table import Table
 
+from DiFD.datasets.windowed import (
+    WindowedSplits,
+    split_and_window,
+    collect_splits,
+    validate_features,
+)
 from DiFD.schema import InjectionConfig
-from DiFD.schema.types import FaultType
+from DiFD.schema.types import FaultType, WindowConfig
 
 
 @dataclass
@@ -134,6 +141,80 @@ class InjectedDataset:
             pct = 100.0 * count / total if total > 0 else 0.0
             table.add_row(ft.name, f"{count:,}", f"{pct:.2f}%")
         return table
+
+    def prepare(
+        self,
+        window_config: WindowConfig | None = None,
+        features: list[str] | None = None,
+    ) -> WindowedSplits:
+        """Convert this dataset into windowed train/val/test arrays.
+
+        For each group in the DataFrame:
+            1. Chronologically split into train/val/test
+            2. Extract sliding windows with appropriate stride
+
+        The validation set is carved from the *end* of the training portion
+        so that no overlapping windows can leak between splits.
+
+        Args:
+            window_config: Windowing configuration. Falls back to
+                ``self.config.window``.
+            features: Subset of feature names to use. When ``None``
+                (default), all features from ``self.feature_names``
+                are used.
+
+        Returns:
+            WindowedSplits with windowed arrays.
+
+        Raises:
+            ValueError: If any name in *features* is not in the dataset.
+        """
+        wc = window_config if window_config is not None else self.config.window
+        selected_features = validate_features(features, self.feature_names)
+        group_col = self.group_column
+
+        train_X_parts: list[NDArray[np.float32]] = []
+        train_y_parts: list[NDArray[np.int32]] = []
+        val_X_parts: list[NDArray[np.float32]] = []
+        val_y_parts: list[NDArray[np.int32]] = []
+        test_X_parts: list[NDArray[np.float32]] = []
+        test_y_parts: list[NDArray[np.int32]] = []
+
+        groups = self.df.groupby(group_col) if group_col in self.df.columns else [(None, self.df)]
+
+        for _, group_df in groups:
+            group_features = group_df[selected_features].to_numpy(dtype=np.float32)
+            group_labels = group_df["fault_state"].to_numpy(dtype=np.int32)
+
+            X_tr, y_tr, X_va, y_va, X_te, y_te = split_and_window(
+                group_features, group_labels, wc
+            )
+
+            if len(X_tr) > 0:
+                train_X_parts.append(X_tr)
+                train_y_parts.append(y_tr)
+            if len(X_va) > 0:
+                val_X_parts.append(X_va)
+                val_y_parts.append(y_va)
+            if len(X_te) > 0:
+                test_X_parts.append(X_te)
+                test_y_parts.append(y_te)
+
+        X_train, y_train, X_val, y_val, X_test, y_test = collect_splits(
+            wc, len(selected_features),
+            train_X_parts, train_y_parts,
+            val_X_parts, val_y_parts,
+            test_X_parts, test_y_parts,
+        )
+
+        return WindowedSplits(
+            X_train=X_train,
+            y_train=y_train,
+            X_val=X_val,
+            y_val=y_val,
+            X_test=X_test,
+            y_test=y_test,
+        )
 
     def get_class_weights(self) -> dict[int, float]:
         """Compute inverse frequency class weights for imbalanced learning.

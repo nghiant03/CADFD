@@ -13,6 +13,7 @@ This repository is a research project for fault diagnosis analysis.
 - Use **pyright** for type checking `.py` source files.
 - Run tests with `uv run pytest`.
 - Do **not** use `TYPE_CHECKING` from `typing`. Use `from __future__ import annotations` and lazy imports inside functions instead.
+- When changing a function, file, class, or variable, **always reconsider whether its name still accurately describes its purpose**. Rename if the name no longer fits.
 
 ## Notebook Conventions
 
@@ -23,10 +24,10 @@ This repository is a research project for fault diagnosis analysis.
 ```
 src/DiFD/
 ├── schema/            # Pydantic config models: FaultType, FaultConfig, MarkovConfig, WindowConfig, InjectionConfig
-├── cli/               # Typer CLI with subcommands (inject, train, evaluate, optimize)
+├── cli/               # Typer CLI with subcommands (inject, prepare, train, evaluate, optimize)
 ├── injection/         # Fault injection: Markov generator, fault injectors, registry
-├── datasets/          # Dataset loaders (Intel Lab + extensible registry) + InjectedDataset container
-├── models/            # Deep learning model definitions (LSTM, GRU, Autoformer, Transformer, Informer, PatchTST)
+├── datasets/          # Dataset loaders, InjectedDataset, GraphDataset, GraphMetadata, WindowedSplits, windowing, loading
+├── models/            # Deep learning model definitions (LSTM, GRU, Autoformer, Transformer, Informer, PatchTST, GCN)
 ├── training/          # Trainer, focal loss, oversampling, and callbacks
 ├── evaluation/        # Metrics and evaluator
 ├── optimization/      # Optuna hyperparameter sweep
@@ -76,14 +77,33 @@ def run(
 
 ## Datasets Module (`datasets/`)
 
-- `InjectedDataset` - Container with X/y train/test arrays + config + save/load
+- `InjectedDataset` (`injected.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, features) -> WindowedSplits` for per-group chronological windowing.
+- `GraphDataset` (`graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep). Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
+- `GraphMetadata` (`graph.py`) - Typed dataclass holding `adjacency`, `node_ids`, `num_nodes`, `threshold`. Stored in `WindowedSplits.metadata["graph"]` by `GraphDataset.prepare()`.
+- `WindowedSplits` (`windowed.py`) - Unified dataclass holding windowed `X_train/y_train/X_val/y_val/X_test/y_test` arrays + `metadata` dict. Properties: `input_size`, `has_val`, `has_test`.
+- `load_adjacency_matrix` (`graph.py`) - Loads binary adjacency matrix from a connectivity data file (whitespace-separated: `source dest probability`), thresholds by connectivity probability.
+- `load_dataset` (`loading.py`) - Loads the appropriate dataset variant (`InjectedDataset` or `GraphDataset`) based on which files exist on disk.
+- `validate_features` (`windowed.py`) - Shared feature-name validation used by both `InjectedDataset.prepare()` and `GraphDataset.prepare()`.
+- `collect_splits` (`windowed.py`) - Shared helper to concatenate per-group window parts into final arrays with correct empty fallbacks.
+
+### Data Preparation Pattern
+
+All dataset types expose a `.prepare()` method returning `WindowedSplits`. The CLI calls `load_dataset(path)` which returns the right variant, then `dataset.prepare(...)` dispatches polymorphically. Graph metadata travels via `WindowedSplits.metadata["graph"]`.
+
+`create_model` accepts `metadata` and automatically validates model requirements and extracts architecture-specific kwargs (e.g. `num_nodes`, `adjacency` for GCN).
+
+```python
+dataset = load_dataset(data)
+prepared = dataset.prepare(features=config.features)
+net = create_model(config.model, input_size=prepared.input_size,
+                   num_classes=num_classes, metadata=prepared.metadata)
+```
 
 ## Training Module (`training/`)
 
 - `FocalLoss` (`loss.py`) - Focal loss for imbalanced multi-class classification. gamma=0 recovers CE.
 - `oversample_minority` (`oversampling.py`) - Window-level oversampling: duplicates windows containing any non-NORMAL label until minority count reaches `ratio * majority_count`.
-- `prepare_data` (`windowing.py`) - Chronological 3-way split (train/val/test) per group, then sliding-window extraction. Validation is carved from the end of the training portion to prevent information leakage from overlapping windows. Accepts an optional `features` list to select a subset of feature columns for training.
-- `Trainer` (`trainer.py`) - Full training loop with Adam optimizer, optional focal loss, optional oversampling, and callback hooks. Returns `TrainResult` with per-epoch history. Expects val data passed explicitly (produced by `prepare_data`).
+- `Trainer` (`trainer.py`) - Full training loop with Adam optimizer, optional focal loss, optional oversampling, and callback hooks. Returns `TrainResult` with per-epoch history. Expects val data passed explicitly (produced by `dataset.prepare()`).
 - `TrainingCallback` (`callbacks.py`) - Abstract base; implementations: `LoggingCallback`, `EarlyStoppingCallback`, `CheckpointCallback`.
 
 ## Evaluation Module (`evaluation/`)
@@ -95,10 +115,11 @@ def run(
 
 ## Workflow
 
-1. **Fault Injection**: `uv run difd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab.npz`
-2. **Training**: `uv run difd train run --data data/injected/intel_lab.npz --model lstm`
-3. **Evaluation**: `uv run difd evaluate run --model models/lstm.pt --data data/injected/intel_lab.npz`
-4. **Optimization**: `uv run difd optimize run --data data/injected/intel_lab.npz --n-trials 100`
+1. **Fault Injection**: `uv run difd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
+2. **Graph Preparation** (optional): `uv run difd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
+3. **Training**: `uv run difd train run lstm data/injected/intel_lab`
+4. **Evaluation**: `uv run difd evaluate run --model models/lstm --data data/injected/intel_lab`
+5. **Optimization**: `uv run difd optimize run --data data/injected/intel_lab --n-trials 100`
 
 ## CLI Structure
 
@@ -109,6 +130,8 @@ difd                    # Main entry point
 ├── inject              # Fault injection subcommands
 │   ├── run             # Run fault injection
 │   └── list-datasets   # List available datasets
+├── prepare             # Data preparation subcommands
+│   └── graph           # Add graph topology to injected dataset
 ├── train               # Training subcommands
 │   ├── run             # Train a model
 │   └── list-models     # List available models
@@ -134,6 +157,19 @@ Run `difd --help` or `difd <subcommand> --help` for detailed options.
 1. Implement a new dataset class in `src/DiFD/datasets/` subclassing `BaseDataset`.
 2. Implement: `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`.
 3. Register in `datasets/registry.py` with `register_dataset()`.
+
+## Model Metadata Requirements
+
+Models declare required dataset metadata via `required_metadata` (a `ClassVar[set[str]]` on `BaseModel`). The model registry (`create_model`) validates these before construction and extracts architecture-specific kwargs automatically.
+
+```python
+class GCNClassifier(BaseModel):
+    required_metadata: ClassVar[set[str]] = {"graph"}
+```
+
+To add a new model that needs special metadata:
+1. Set `required_metadata` on the model class.
+2. Add extraction logic to `_extract_metadata_kwargs` in `models/registry.py`.
 
 ## CLI Options (inject run)
 

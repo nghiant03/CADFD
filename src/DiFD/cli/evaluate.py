@@ -7,12 +7,12 @@ from typing import Annotated, Optional
 
 import typer
 
-from DiFD.datasets import InjectedDataset
+from DiFD.datasets import load_dataset
 from DiFD.evaluation import Evaluator
 from DiFD.logging import logger
+from DiFD.models import create_model
 from DiFD.schema import EvaluateConfig
 from DiFD.schema.types import FaultType
-from DiFD.training.windowing import prepare_data
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -48,7 +48,7 @@ def evaluate_run(
     )
 
     logger.info("Loading data from: {}", data)
-    dataset = InjectedDataset.load(data)
+    dataset = load_dataset(data)
     dataset.print_summary()
 
     logger.info("Loading model from: {}", model)
@@ -62,17 +62,20 @@ def evaluate_run(
     if isinstance(train_cfg, dict):
         saved_features = train_cfg.get("features")
 
-    _, _, _, _, X_test, y_test = prepare_data(dataset, features=saved_features)
+    prepared = dataset.prepare(features=saved_features)
 
-    if len(X_test) == 0:
+    if not prepared.has_test:
         logger.error("No test data available in dataset")
         raise typer.Exit(code=1)
 
-    from DiFD.models import create_model
-
-    input_size = X_test.shape[-1]
+    input_size = prepared.input_size
     num_classes = FaultType.count()
-    net = create_model(model_name, input_size=input_size, num_classes=num_classes)
+    net = create_model(
+        model_name,
+        input_size=input_size,
+        num_classes=num_classes,
+        metadata=prepared.metadata,
+    )
     assert isinstance(net, BaseModel)
     net.load_state_dict(
         torch.load(model / "weight.pt", weights_only=True)
@@ -81,7 +84,7 @@ def evaluate_run(
 
     evaluator = Evaluator(config=config)
     logger.info("Evaluating with batch_size={}", config.batch_size)
-    result = evaluator.evaluate(net, X_test, y_test)
+    result = evaluator.evaluate(net, prepared.X_test, prepared.y_test)
     evaluator.log_results(result)
 
     save_dir = output if output is not None else model

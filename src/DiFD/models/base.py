@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import ClassVar
 
 import torch
 import torch.nn as nn
@@ -22,8 +23,14 @@ class BaseModel(nn.Module, ABC):
         - forward: Standard PyTorch forward pass
         - get_config: Return architecture config dict for serialization
 
+    Subclasses that need extra data (e.g. graph topology) should list
+    required metadata keys in ``required_metadata``.  The model registry
+    validates these before construction.
+
     The base class provides common utilities for model management.
     """
+
+    required_metadata: ClassVar[set[str]] = set()
 
     @property
     @abstractmethod

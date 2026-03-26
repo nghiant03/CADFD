@@ -7,7 +7,7 @@ from typing import Annotated, Optional
 
 import typer
 
-from DiFD.datasets import InjectedDataset
+from DiFD.datasets import load_dataset
 from DiFD.evaluation import Evaluator
 from DiFD.logging import logger
 from DiFD.models import create_model
@@ -15,7 +15,6 @@ from DiFD.schema import EvaluateConfig, TrainConfig
 from DiFD.schema.types import FaultType
 from DiFD.training import CheckpointCallback, EarlyStoppingCallback, LoggingCallback, Trainer
 from DiFD.training.trainer import _build_loss
-from DiFD.training.windowing import prepare_data
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -110,23 +109,22 @@ def train_run(
     logger.debug("TrainConfig: {}", config.to_dict())
 
     logger.info("Loading data from: {}", data)
-    dataset = InjectedDataset.load(data)
+    dataset = load_dataset(data)
     dataset.print_summary()
 
-    X_train, y_train, X_val, y_val, X_test, y_test = prepare_data(
-        dataset, features=config.features
-    )
+    prepared = dataset.prepare(features=config.features)
+
     logger.debug(
         "Windowed shapes: X_train={}, y_train={}, X_val={}, y_val={}, X_test={}, y_test={}",
-        X_train.shape,
-        y_train.shape,
-        X_val.shape,
-        y_val.shape,
-        X_test.shape,
-        y_test.shape,
+        prepared.X_train.shape,
+        prepared.y_train.shape,
+        prepared.X_val.shape,
+        prepared.y_val.shape,
+        prepared.X_test.shape,
+        prepared.y_test.shape,
     )
 
-    input_size = X_train.shape[-1]
+    input_size = prepared.input_size
     num_classes = FaultType.count()
     logger.debug(
         "Creating model: arch={}, input_size={}, num_classes={}",
@@ -134,10 +132,12 @@ def train_run(
         input_size,
         num_classes,
     )
+
     net = create_model(
         config.model,
         input_size=input_size,
         num_classes=num_classes,
+        metadata=prepared.metadata,
     )
     logger.info(
         "Model: {} ({:,} parameters)", net.name, net.count_parameters()
@@ -167,10 +167,10 @@ def train_run(
 
     result = trainer.fit(
         model=net,
-        X_train=X_train,
-        y_train=y_train,
-        X_val=X_val if len(X_val) > 0 else None,
-        y_val=y_val if len(y_val) > 0 else None,
+        X_train=prepared.X_train,
+        y_train=prepared.y_train,
+        X_val=prepared.X_val if prepared.has_val else None,
+        y_val=prepared.y_val if prepared.has_val else None,
     )
 
     logger.info(
@@ -180,14 +180,14 @@ def train_run(
     )
     logger.info("Model saved to: {}", output_path)
 
-    if len(X_test) > 0:
+    if prepared.has_test:
         logger.info("--- Final Test Evaluation ---")
         evaluator = Evaluator(
             config=EvaluateConfig(batch_size=config.batch_size),
             device=str(trainer.device),
         )
         criterion = _build_loss(config, trainer.device)
-        eval_result = evaluator.evaluate(net, X_test, y_test, criterion=criterion)
+        eval_result = evaluator.evaluate(net, prepared.X_test, prepared.y_test, criterion=criterion)
         evaluator.log_results(eval_result)
 
         eval_result.save(
