@@ -90,22 +90,42 @@ def train_run(
         Optional[list[str]],
         typer.Option("--features", "-f", help="Feature(s) to train on (default: all)"),
     ] = None,
+    config_file: Annotated[
+        Optional[Path],
+        typer.Option("--config", "-c", help="Path to YAML config file"),
+    ] = None,
 ) -> None:
     """Train a fault diagnosis model."""
-    defaults = TrainConfig(model=model)
-    config = TrainConfig(
-        model=model,
-        epochs=epochs if epochs is not None else defaults.epochs,
-        batch_size=batch_size if batch_size is not None else defaults.batch_size,
-        learning_rate=learning_rate if learning_rate is not None else defaults.learning_rate,
-        use_focal_loss=use_focal_loss if use_focal_loss is not None else defaults.use_focal_loss,
-        focal_gamma=focal_gamma if focal_gamma is not None else defaults.focal_gamma,
-        oversample=oversample if oversample is not None else defaults.oversample,
-        oversample_ratio=oversample_ratio if oversample_ratio is not None else defaults.oversample_ratio,
-        val_ratio=val_ratio if val_ratio is not None else defaults.val_ratio,
-        seed=seed if seed is not None else defaults.seed,
-        features=features if features is not None else defaults.features,
-    )
+    if config_file is not None:
+        config = TrainConfig.from_yaml(config_file)
+        config = config.model_copy(update={"model": model})
+    else:
+        config = TrainConfig(model=model)
+
+    cli_overrides: dict[str, object] = {}
+    if epochs is not None:
+        cli_overrides["epochs"] = epochs
+    if batch_size is not None:
+        cli_overrides["batch_size"] = batch_size
+    if learning_rate is not None:
+        cli_overrides["learning_rate"] = learning_rate
+    if use_focal_loss is not None:
+        cli_overrides["use_focal_loss"] = use_focal_loss
+    if focal_gamma is not None:
+        cli_overrides["focal_gamma"] = focal_gamma
+    if oversample is not None:
+        cli_overrides["oversample"] = oversample
+    if oversample_ratio is not None:
+        cli_overrides["oversample_ratio"] = oversample_ratio
+    if val_ratio is not None:
+        cli_overrides["val_ratio"] = val_ratio
+    if seed is not None:
+        cli_overrides["seed"] = seed
+    if features is not None:
+        cli_overrides["features"] = features
+
+    if cli_overrides:
+        config = config.model_copy(update=cli_overrides)
     logger.debug("TrainConfig: {}", config.to_dict())
 
     logger.info("Loading data from: {}", data)
@@ -138,6 +158,7 @@ def train_run(
         input_size=input_size,
         num_classes=num_classes,
         metadata=prepared.metadata,
+        **config.model_kwargs,
     )
     logger.info(
         "Model: {} ({:,} parameters)", net.name, net.count_parameters()

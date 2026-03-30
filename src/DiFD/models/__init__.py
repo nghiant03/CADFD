@@ -4,14 +4,11 @@ This module provides model architectures and a registry system for
 managing different model implementations.
 
 Subpackages:
-    recurrent/    - LSTM, GRU
-    transformer/  - Transformer, Autoformer, Informer, PatchTST
-    graph/        - ST-GCN
+    temporal/  - CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST
+    spatial/   - ST-GCN
 """
 
 from DiFD.models.base import BaseModel
-from DiFD.models.graph import STGCNClassifier
-from DiFD.models.recurrent import GRUClassifier, LSTMClassifier
 from DiFD.models.registry import (
     create_model,
     get_model_class,
@@ -19,9 +16,13 @@ from DiFD.models.registry import (
     list_models,
     register_model,
 )
-from DiFD.models.transformer import (
+from DiFD.models.spatial import STGCNClassifier
+from DiFD.models.temporal import (
     AutoformerClassifier,
+    CNN1DClassifier,
+    GRUClassifier,
     InformerClassifier,
+    LSTMClassifier,
     PatchTSTClassifier,
     TransformerClassifier,
 )
@@ -29,6 +30,7 @@ from DiFD.models.transformer import (
 __all__ = [
     "AutoformerClassifier",
     "BaseModel",
+    "CNN1DClassifier",
     "GRUClassifier",
     "InformerClassifier",
     "LSTMClassifier",

@@ -9,11 +9,13 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from DiFD.models.base import BaseModel
-from DiFD.models.graph import STGCNClassifier
-from DiFD.models.recurrent import GRUClassifier, LSTMClassifier
-from DiFD.models.transformer import (
+from DiFD.models.spatial import STGCNClassifier
+from DiFD.models.temporal import (
     AutoformerClassifier,
+    CNN1DClassifier,
+    GRUClassifier,
     InformerClassifier,
+    LSTMClassifier,
     PatchTSTClassifier,
     TransformerClassifier,
 )
@@ -147,3 +149,4 @@ register_model("transformer", TransformerClassifier)
 register_model("informer", InformerClassifier)
 register_model("patchtst", PatchTSTClassifier)
 register_model("stgcn", STGCNClassifier)
+register_model("cnn1d", CNN1DClassifier)

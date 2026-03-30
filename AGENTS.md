@@ -29,12 +29,15 @@ src/DiFD/
 ├── datasets/          # Dataset loaders and injected containers
 │   ├── raw/           # Pre-injection: BaseDataset, IntelLabDataset, registry
 │   └── injected/      # Post-injection: InjectedDataset, GraphDataset, windowing, loading
-├── models/            # Deep learning model definitions (LSTM, GRU, Autoformer, Transformer, Informer, PatchTST, ST-GCN)
+├── models/            # Deep learning model definitions
+│   ├── temporal/      # Temporal models: CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST
+│   └── spatial/       # Spatial models: ST-GCN
 ├── training/          # Trainer, focal loss, oversampling, and callbacks
 ├── evaluation/        # Metrics and evaluator
 ├── optimization/      # Optuna hyperparameter sweep
 ├── seed.py            # seed_everything() utility for reproducibility
 
+config/                # YAML config files per model (lstm.yaml, gru.yaml, etc.)
 data/                  # Raw datasets and injected outputs
 tests/                 # Unit tests per module
 notebooks/             # Jupyter notebooks for analysis
@@ -49,7 +52,7 @@ The `schema/` module contains Pydantic configuration models used by injection, t
 - `MarkovConfig` - Markov chain configuration (list of fault configs, seed)
 - `WindowConfig` - Sliding window parameters (size, strides, train ratio, val ratio)
 - `InjectionConfig` - Complete injection pipeline config (serializable as metadata)
-- `TrainConfig` - Training configuration (model, epochs, batch_size, learning_rate, use_focal_loss, focal_gamma, focal_alpha, oversample, oversample_ratio, features, seed)
+- `TrainConfig` - Training configuration (model, epochs, batch_size, learning_rate, use_focal_loss, focal_gamma, focal_alpha, oversample, oversample_ratio, features, seed, model_kwargs). Supports `from_yaml(path)` for YAML config files.
 - `EvaluateConfig` - Evaluation configuration (batch_size)
 - `OptimizeConfig` - Optimization configuration (model, n_trials, seed, storage)
 
@@ -133,7 +136,7 @@ net = create_model(config.model, input_size=prepared.input_size,
 
 1. **Fault Injection**: `uv run difd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
 2. **Graph Preparation** (optional): `uv run difd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
-3. **Training**: `uv run difd train run lstm data/injected/intel_lab`
+3. **Training**: `uv run difd train run lstm data/injected/intel_lab` or with config: `uv run difd train run lstm data/injected/intel_lab --config config/lstm.yaml`
 4. **Evaluation**: `uv run difd evaluate run --model models/lstm --data data/injected/intel_lab`
 5. **Optimization**: `uv run difd optimize run --data data/injected/intel_lab --n-trials 100`
 

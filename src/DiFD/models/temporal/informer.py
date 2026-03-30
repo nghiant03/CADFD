@@ -1,7 +1,16 @@
-"""Vanilla Transformer model for many-to-many fault classification.
+"""Informer model for many-to-many fault classification.
 
-This module implements a standard Transformer encoder architecture with
-positional encoding for per-timestep fault diagnosis.
+This module wraps Informer encoder layers from the HuggingFace
+transformers library with a linear classification head to perform
+per-timestep fault diagnosis. Only the encoder is used — the
+decoder (designed for forecasting) is not needed.
+
+The Informer uses ProbSparse self-attention to reduce complexity
+from O(L^2) to O(L log L).
+
+Reference:
+    Zhou et al., "Informer: Beyond Efficient Transformer for Long Sequence
+    Time-Series Forecasting", AAAI 2021.
 """
 
 from __future__ import annotations
@@ -12,15 +21,19 @@ import torch
 import torch.nn as nn
 
 from DiFD.models.base import BaseModel
-from DiFD.models.transformer.positional import PositionalEncoding
+from DiFD.models.temporal.positional import PositionalEncoding
 
 
-class TransformerClassifier(BaseModel):
-    """Vanilla Transformer encoder for many-to-many sequence classification.
+class InformerClassifier(BaseModel):
+    """Informer model for many-to-many sequence classification.
+
+    Uses InformerEncoderLayer blocks (with ProbSparse self-attention)
+    from HuggingFace, preceded by a linear input projection and
+    followed by a classification head.
 
     Architecture:
         Input -> Linear(input_size, d_model) -> PositionalEncoding
-        -> N x TransformerEncoderLayer -> LayerNorm -> Dropout
+        -> N x InformerEncoderLayer -> LayerNorm -> Dropout
         -> Linear(d_model, num_classes) -> Output
 
     Args:
@@ -30,22 +43,29 @@ class TransformerClassifier(BaseModel):
         num_classes: Number of output classes (fault types).
         n_heads: Number of attention heads.
         d_ff: Dimension of the feed-forward layers.
-        max_len: Maximum input sequence length (for positional encoding).
         dropout: Dropout probability.
+        sampling_factor: ProbSparse sampling factor controlling sparsity.
+        max_len: Maximum input sequence length (for positional encoding).
     """
 
     def __init__(
         self,
         input_size: int,
-        d_model: int = 64,
-        num_layers: int = 2,
+        d_model: int = 32,
+        num_layers: int = 1,
         num_classes: int = 4,
         n_heads: int = 4,
-        d_ff: int = 128,
+        d_ff: int = 64,
         max_len: int = 60,
-        dropout: float = 0.2,
+        dropout: float = 0.1,
+        sampling_factor: int = 5,
     ) -> None:
         super().__init__()
+
+        from transformers import InformerConfig
+        from transformers.models.informer.modeling_informer import (
+            InformerEncoderLayer,
+        )
 
         self.input_size = input_size
         self.d_model = d_model
@@ -53,31 +73,33 @@ class TransformerClassifier(BaseModel):
         self.num_classes = num_classes
         self.n_heads = n_heads
         self.d_ff = d_ff
+        self.max_len = max_len
         self.dropout_prob = dropout
+        self.sampling_factor = sampling_factor
+
+        hf_config = InformerConfig(
+            d_model=d_model,
+            encoder_attention_heads=n_heads,
+            encoder_ffn_dim=d_ff,
+            dropout=dropout,
+            activation_dropout=dropout,
+            attention_dropout=dropout,
+            attention_type="prob",
+            sampling_factor=sampling_factor,
+        )
 
         self.input_proj = nn.Linear(input_size, d_model)
         self.pos_encoding = PositionalEncoding(d_model, dropout=dropout, max_len=max_len)
-
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=n_heads,
-            dim_feedforward=d_ff,
-            dropout=dropout,
-            batch_first=True,
-            norm_first=True,
+        self.layers = nn.ModuleList(
+            [InformerEncoderLayer(hf_config) for _ in range(num_layers)]
         )
-        self.encoder = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=num_layers,
-            norm=nn.LayerNorm(d_model),
-        )
-
+        self.layer_norm = nn.LayerNorm(d_model)
         self.dropout_layer = nn.Dropout(dropout)
         self.fc = nn.Linear(d_model, num_classes)
 
     @property
     def name(self) -> str:
-        return "transformer"
+        return "informer"
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass for many-to-many classification.
@@ -90,7 +112,10 @@ class TransformerClassifier(BaseModel):
         """
         hidden = self.input_proj(x)
         hidden = self.pos_encoding(hidden)
-        hidden = self.encoder(hidden)
+        for layer in self.layers:
+            layer_out = layer(hidden, attention_mask=None)
+            hidden = layer_out[0]
+        hidden = self.layer_norm(hidden)
         hidden = self.dropout_layer(hidden)
         logits = self.fc(hidden)
         return logits
@@ -105,17 +130,18 @@ class TransformerClassifier(BaseModel):
             "n_heads": self.n_heads,
             "d_ff": self.d_ff,
             "dropout": self.dropout_prob,
+            "sampling_factor": self.sampling_factor,
         }
 
     @classmethod
-    def from_checkpoint(cls, path: str | Path) -> TransformerClassifier:
+    def from_checkpoint(cls, path: str | Path) -> InformerClassifier:
         """Load model from a saved directory.
 
         Args:
             path: Path to the model directory.
 
         Returns:
-            Loaded TransformerClassifier instance.
+            Loaded InformerClassifier instance.
         """
         directory = Path(path)
         meta = BaseModel.load_metadata(directory)
@@ -129,6 +155,9 @@ class TransformerClassifier(BaseModel):
             n_heads=int(config["n_heads"]),
             d_ff=int(config["d_ff"]),
             dropout=float(config["dropout"]),
+            sampling_factor=int(config["sampling_factor"]),
         )
-        model.load_state_dict(torch.load(directory / "weight.pt", weights_only=True))
+        model.load_state_dict(
+            torch.load(directory / "weight.pt", weights_only=True)
+        )
         return model

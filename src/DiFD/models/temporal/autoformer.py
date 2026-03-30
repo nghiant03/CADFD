@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 
 from DiFD.models.base import BaseModel
-from DiFD.models.transformer.positional import PositionalEncoding
+from DiFD.models.temporal.positional import PositionalEncoding
 
 
 class AutoformerClassifier(BaseModel):

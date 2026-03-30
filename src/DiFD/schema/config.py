@@ -7,6 +7,9 @@ Each config class owns its default values (Single Source of Truth).
 CLI modules should use None defaults and fall back to these schema defaults.
 """
 
+from __future__ import annotations
+
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -115,6 +118,7 @@ class TrainConfig(BaseModel):
     features: list[str] | None = None
     val_ratio: float = Field(default=0.1, ge=0.0, lt=1.0)
     seed: int = 42
+    model_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -131,7 +135,44 @@ class TrainConfig(BaseModel):
             "features": self.features,
             "val_ratio": self.val_ratio,
             "seed": self.seed,
+            "model_kwargs": self.model_kwargs,
         }
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "TrainConfig":
+        """Load configuration from a YAML file.
+
+        The YAML file should contain a ``train`` section for training
+        parameters and an optional ``model_kwargs`` section for
+        model-specific architecture parameters.
+
+        Args:
+            path: Path to the YAML configuration file.
+
+        Returns:
+            Populated TrainConfig instance.
+
+        Raises:
+            FileNotFoundError: If the YAML file does not exist.
+        """
+        import yaml
+
+        resolved = Path(path)
+        if not resolved.exists():
+            msg = f"Config file not found: {resolved}"
+            raise FileNotFoundError(msg)
+
+        with resolved.open() as fh:
+            raw = yaml.safe_load(fh) or {}
+
+        train_section = raw.get("train", {})
+        model_kwargs_section = raw.get("model_kwargs", {})
+
+        merged: dict[str, Any] = {**train_section}
+        if model_kwargs_section:
+            merged["model_kwargs"] = model_kwargs_section
+
+        return cls.from_dict(merged)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TrainConfig":
@@ -154,6 +195,7 @@ class TrainConfig(BaseModel):
             features=data.get("features", defaults.features),
             val_ratio=data.get("val_ratio", defaults.val_ratio),
             seed=data.get("seed", defaults.seed),
+            model_kwargs=data.get("model_kwargs", defaults.model_kwargs),
         )
 
 
