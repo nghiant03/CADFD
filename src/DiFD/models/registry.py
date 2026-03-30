@@ -109,7 +109,7 @@ def _extract_metadata_kwargs(metadata: dict[str, Any]) -> dict[str, object]:
     """Extract model constructor kwargs from dataset metadata."""
     kwargs: dict[str, object] = {}
 
-    from DiFD.datasets.graph import GraphMetadata
+    from DiFD.datasets.injected.graph import GraphMetadata
 
     graph_meta = metadata.get("graph")
     if isinstance(graph_meta, GraphMetadata):

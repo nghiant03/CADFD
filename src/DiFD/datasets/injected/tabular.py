@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 from rich.console import Console
 from rich.table import Table
 
-from DiFD.datasets.windowed import (
+from DiFD.datasets.injected.windowed import (
     WindowedSplits,
     split_and_window,
     collect_splits,

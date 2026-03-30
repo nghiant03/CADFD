@@ -6,8 +6,8 @@ allowing new datasets to be added dynamically.
 
 from pathlib import Path
 
-from DiFD.datasets.base import BaseDataset
-from DiFD.datasets.intel_lab import IntelLabDataset
+from DiFD.datasets.raw.base import BaseDataset
+from DiFD.datasets.raw.intel_lab import IntelLabDataset
 
 _REGISTRY: dict[str, type[BaseDataset]] = {}
 

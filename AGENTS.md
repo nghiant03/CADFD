@@ -26,7 +26,9 @@ src/DiFD/
 ├── schema/            # Pydantic config models: FaultType, FaultConfig, MarkovConfig, WindowConfig, InjectionConfig
 ├── cli/               # Typer CLI with subcommands (inject, prepare, train, evaluate, optimize)
 ├── injection/         # Fault injection: Markov generator, fault injectors, registry
-├── datasets/          # Dataset loaders, InjectedDataset, GraphDataset, GraphMetadata, WindowedSplits, windowing, loading
+├── datasets/          # Dataset loaders and injected containers
+│   ├── raw/           # Pre-injection: BaseDataset, IntelLabDataset, registry
+│   └── injected/      # Post-injection: InjectedDataset, GraphDataset, windowing, loading
 ├── models/            # Deep learning model definitions (LSTM, GRU, Autoformer, Transformer, Informer, PatchTST, ST-GCN)
 ├── training/          # Trainer, focal loss, oversampling, and callbacks
 ├── evaluation/        # Metrics and evaluator
@@ -77,14 +79,28 @@ def run(
 
 ## Datasets Module (`datasets/`)
 
-- `InjectedDataset` (`injected.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, features) -> WindowedSplits` for per-group chronological windowing.
-- `GraphDataset` (`graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep, keeps **per-node labels** of shape `(num_windows, window_size, num_nodes)`). Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
-- `GraphMetadata` (`graph.py`) - Typed dataclass holding `adjacency`, `node_ids`, `num_nodes`, `threshold`. Stored in `WindowedSplits.metadata["graph"]` by `GraphDataset.prepare()`.
-- `WindowedSplits` (`windowed.py`) - Unified dataclass holding windowed `X_train/y_train/X_val/y_val/X_test/y_test` arrays + `metadata` dict. Properties: `input_size`, `has_val`, `has_test`.
-- `load_adjacency_matrix` (`graph.py`) - Loads binary adjacency matrix from a connectivity data file (whitespace-separated: `source dest probability`), thresholds by connectivity probability.
-- `load_dataset` (`loading.py`) - Loads the appropriate dataset variant (`InjectedDataset` or `GraphDataset`) based on which files exist on disk.
-- `validate_features` (`windowed.py`) - Shared feature-name validation used by both `InjectedDataset.prepare()` and `GraphDataset.prepare()`.
-- `collect_splits` (`windowed.py`) - Shared helper to concatenate per-group window parts into final arrays with correct empty fallbacks. Accepts `label_trailing_shape` for per-node label dimensions.
+Organized into two sub-packages by pipeline stage:
+
+### Raw Sub-package (`datasets/raw/`)
+
+Pre-injection dataset loaders and registry.
+
+- `BaseDataset` (`raw/base.py`) - Abstract base for raw dataset loaders: `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`.
+- `IntelLabDataset` (`raw/intel_lab.py`) - Concrete loader for Intel Berkeley Research Lab sensor data.
+- `register_dataset` / `get_dataset` / `list_datasets` (`raw/registry.py`) - Dynamic dataset registry.
+
+### Injected Sub-package (`datasets/injected/`)
+
+Post-injection containers, graph topology, and windowing.
+
+- `InjectedDataset` (`injected/tabular.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, features) -> WindowedSplits` for per-group chronological windowing.
+- `GraphDataset` (`injected/graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep, keeps **per-node labels** of shape `(num_windows, window_size, num_nodes)`). Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
+- `GraphMetadata` (`injected/graph.py`) - Typed dataclass holding `adjacency`, `node_ids`, `num_nodes`, `threshold`. Stored in `WindowedSplits.metadata["graph"]` by `GraphDataset.prepare()`.
+- `WindowedSplits` (`injected/windowed.py`) - Unified dataclass holding windowed `X_train/y_train/X_val/y_val/X_test/y_test` arrays + `metadata` dict. Properties: `input_size`, `has_val`, `has_test`.
+- `load_adjacency_matrix` (`injected/graph.py`) - Loads binary adjacency matrix from a connectivity data file (whitespace-separated: `source dest probability`), thresholds by connectivity probability.
+- `load_dataset` (`injected/loading.py`) - Loads the appropriate dataset variant (`InjectedDataset` or `GraphDataset`) based on which files exist on disk.
+- `validate_features` (`injected/windowed.py`) - Shared feature-name validation used by both `InjectedDataset.prepare()` and `GraphDataset.prepare()`.
+- `collect_splits` (`injected/windowed.py`) - Shared helper to concatenate per-group window parts into final arrays with correct empty fallbacks. Accepts `label_trailing_shape` for per-node label dimensions.
 
 ### Data Preparation Pattern
 
@@ -154,9 +170,9 @@ Run `difd --help` or `difd <subcommand> --help` for detailed options.
 
 ## Adding New Datasets
 
-1. Implement a new dataset class in `src/DiFD/datasets/` subclassing `BaseDataset`.
+1. Implement a new dataset class in `src/DiFD/datasets/raw/` subclassing `BaseDataset`.
 2. Implement: `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`.
-3. Register in `datasets/registry.py` with `register_dataset()`.
+3. Register in `datasets/raw/registry.py` with `register_dataset()`.
 
 ## Model Metadata Requirements
 

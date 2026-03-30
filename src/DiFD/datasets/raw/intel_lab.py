@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 from loguru import logger
 
-from DiFD.datasets.base import BaseDataset
+from DiFD.datasets.raw.base import BaseDataset
 
 
 class IntelLabDataset(BaseDataset):

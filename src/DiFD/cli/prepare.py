@@ -33,7 +33,7 @@ def prepare_graph(
     builds a binary adjacency matrix, and saves it alongside the existing
     injected dataset files.
     """
-    from DiFD.datasets.graph import GraphDataset
+    from DiFD.datasets.injected.graph import GraphDataset
 
     if not data.exists():
         logger.error("Dataset directory not found: {}", data)

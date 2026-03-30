@@ -13,8 +13,8 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from DiFD.datasets.injected import InjectedDataset
-from DiFD.datasets.windowed import (
+from DiFD.datasets.injected.tabular import InjectedDataset
+from DiFD.datasets.injected.windowed import (
     WindowedSplits,
     split_and_window,
     collect_splits,

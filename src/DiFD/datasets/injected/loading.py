@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from DiFD.datasets.injected import InjectedDataset
+from DiFD.datasets.injected.tabular import InjectedDataset
 
 
 def load_dataset(path: str | Path) -> InjectedDataset:
@@ -24,7 +24,7 @@ def load_dataset(path: str | Path) -> InjectedDataset:
     Returns:
         ``InjectedDataset`` or ``GraphDataset``.
     """
-    from DiFD.datasets.graph import GraphDataset
+    from DiFD.datasets.injected.graph import GraphDataset
 
     directory = Path(path)
     has_graph = (

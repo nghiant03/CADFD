@@ -9,7 +9,7 @@ import pandas as pd
 from loguru import logger
 
 from DiFD.datasets import InjectedDataset
-from DiFD.datasets.base import BaseDataset
+from DiFD.datasets.raw.base import BaseDataset
 from DiFD.injection.markov import MarkovStateGenerator
 from DiFD.injection.registry import get_injector
 from DiFD.schema import InjectionConfig
