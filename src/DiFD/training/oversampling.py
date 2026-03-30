@@ -35,7 +35,8 @@ def oversample_minority(
     """
     normal_val = FaultType.NORMAL.value
 
-    is_minority = np.any(y != normal_val, axis=1)
+    flat_per_window = y.reshape(len(y), -1)
+    is_minority = np.any(flat_per_window != normal_val, axis=1)
     minority_idx = np.where(is_minority)[0]
     majority_idx = np.where(~is_minority)[0]
 

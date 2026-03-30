@@ -207,11 +207,13 @@ class GraphDataset(InjectedDataset):
         Unlike ``InjectedDataset.prepare`` (which windows each group
         independently), this method aligns ALL sensor groups onto a common
         time axis and concatenates their features at each timestep.  The
-        resulting ``input_size = num_nodes * features_per_node`` lets a
-        GCN reshape and apply graph convolutions across the sensor topology.
+        resulting ``input_size = num_nodes * features_per_node`` lets the
+        ST-GCN reshape and apply graph convolutions across the sensor
+        topology.
 
-        The label at each timestep is the *maximum* fault label across all
-        sensors (i.e., any fault at any sensor is propagated).
+        Labels are kept **per-node**: each timestep retains the independent
+        fault state of every sensor so the model can perform per-node fault
+        diagnosis.  Label shape is ``(num_windows, window_size, num_nodes)``.
 
         Args:
             window_config: Windowing configuration. Falls back to the
@@ -247,14 +249,14 @@ class GraphDataset(InjectedDataset):
             gdf = df[df[group_col] == nid].sort_values("timestamp").reset_index(drop=True)
             label_arrays.append(gdf["fault_state"].to_numpy(dtype=np.int32)[:min_len])
 
-        stacked = np.stack(label_arrays, axis=0)
-        labels_all = stacked.max(axis=0).astype(np.int32)
+        labels_all = np.stack(label_arrays, axis=1).astype(np.int32)
 
         X_tr, y_tr, X_va, y_va, X_te, y_te = split_and_window(
             combined, labels_all, wc
         )
 
         n_feat = len(selected_features) * len(node_ids)
+        num_nodes = len(node_ids)
         X_train, y_train, X_val, y_val, X_test, y_test = collect_splits(
             wc, n_feat,
             [X_tr] if len(X_tr) > 0 else [],
@@ -263,6 +265,7 @@ class GraphDataset(InjectedDataset):
             [y_va] if len(y_va) > 0 else [],
             [X_te] if len(X_te) > 0 else [],
             [y_te] if len(y_te) > 0 else [],
+            label_trailing_shape=(num_nodes,),
         )
 
         graph_meta = GraphMetadata(

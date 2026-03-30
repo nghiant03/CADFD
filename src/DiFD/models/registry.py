@@ -8,14 +8,15 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from DiFD.models.autoformer import AutoformerClassifier
 from DiFD.models.base import BaseModel
-from DiFD.models.gcn import GCNClassifier
-from DiFD.models.gru import GRUClassifier
-from DiFD.models.informer import InformerClassifier
-from DiFD.models.lstm import LSTMClassifier
-from DiFD.models.patchtst import PatchTSTClassifier
-from DiFD.models.transformer import TransformerClassifier
+from DiFD.models.graph import STGCNClassifier
+from DiFD.models.recurrent import GRUClassifier, LSTMClassifier
+from DiFD.models.transformer import (
+    AutoformerClassifier,
+    InformerClassifier,
+    PatchTSTClassifier,
+    TransformerClassifier,
+)
 
 ModelFactory = Callable[..., BaseModel]
 
@@ -145,4 +146,4 @@ register_model("autoformer", AutoformerClassifier)
 register_model("transformer", TransformerClassifier)
 register_model("informer", InformerClassifier)
 register_model("patchtst", PatchTSTClassifier)
-register_model("gcn", GCNClassifier)
+register_model("stgcn", STGCNClassifier)

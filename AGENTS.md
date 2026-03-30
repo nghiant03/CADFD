@@ -27,7 +27,7 @@ src/DiFD/
 ├── cli/               # Typer CLI with subcommands (inject, prepare, train, evaluate, optimize)
 ├── injection/         # Fault injection: Markov generator, fault injectors, registry
 ├── datasets/          # Dataset loaders, InjectedDataset, GraphDataset, GraphMetadata, WindowedSplits, windowing, loading
-├── models/            # Deep learning model definitions (LSTM, GRU, Autoformer, Transformer, Informer, PatchTST, GCN)
+├── models/            # Deep learning model definitions (LSTM, GRU, Autoformer, Transformer, Informer, PatchTST, ST-GCN)
 ├── training/          # Trainer, focal loss, oversampling, and callbacks
 ├── evaluation/        # Metrics and evaluator
 ├── optimization/      # Optuna hyperparameter sweep
@@ -78,13 +78,13 @@ def run(
 ## Datasets Module (`datasets/`)
 
 - `InjectedDataset` (`injected.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, features) -> WindowedSplits` for per-group chronological windowing.
-- `GraphDataset` (`graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep). Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
+- `GraphDataset` (`graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep, keeps **per-node labels** of shape `(num_windows, window_size, num_nodes)`). Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
 - `GraphMetadata` (`graph.py`) - Typed dataclass holding `adjacency`, `node_ids`, `num_nodes`, `threshold`. Stored in `WindowedSplits.metadata["graph"]` by `GraphDataset.prepare()`.
 - `WindowedSplits` (`windowed.py`) - Unified dataclass holding windowed `X_train/y_train/X_val/y_val/X_test/y_test` arrays + `metadata` dict. Properties: `input_size`, `has_val`, `has_test`.
 - `load_adjacency_matrix` (`graph.py`) - Loads binary adjacency matrix from a connectivity data file (whitespace-separated: `source dest probability`), thresholds by connectivity probability.
 - `load_dataset` (`loading.py`) - Loads the appropriate dataset variant (`InjectedDataset` or `GraphDataset`) based on which files exist on disk.
 - `validate_features` (`windowed.py`) - Shared feature-name validation used by both `InjectedDataset.prepare()` and `GraphDataset.prepare()`.
-- `collect_splits` (`windowed.py`) - Shared helper to concatenate per-group window parts into final arrays with correct empty fallbacks.
+- `collect_splits` (`windowed.py`) - Shared helper to concatenate per-group window parts into final arrays with correct empty fallbacks. Accepts `label_trailing_shape` for per-node label dimensions.
 
 ### Data Preparation Pattern
 
@@ -163,13 +163,41 @@ Run `difd --help` or `difd <subcommand> --help` for detailed options.
 Models declare required dataset metadata via `required_metadata` (a `ClassVar[set[str]]` on `BaseModel`). The model registry (`create_model`) validates these before construction and extracts architecture-specific kwargs automatically.
 
 ```python
-class GCNClassifier(BaseModel):
+class STGCNClassifier(BaseModel):
     required_metadata: ClassVar[set[str]] = {"graph"}
 ```
 
 To add a new model that needs special metadata:
 1. Set `required_metadata` on the model class.
 2. Add extraction logic to `_extract_metadata_kwargs` in `models/registry.py`.
+
+## ST-GCN Architecture
+
+The `STGCNClassifier` (`models/stgcn.py`) implements a **Spatio-Temporal Graph Convolutional Network** (ST-GCN) inspired by Yu et al. (2018). It performs **per-node, per-timestep** fault classification.
+
+### Architecture
+
+```
+Input  (batch, seq_len, num_nodes * features_per_node)
+  → reshape to (batch, features_per_node, num_nodes, seq_len)
+  → ST-Conv blocks × N:
+      ├─ TemporalConv (1-D conv along time per node)
+      ├─ GCNConv (spatial message-passing across sensor graph)
+      ├─ TemporalConv (1-D conv along time per node)
+      └─ Residual connection + ReLU + Dropout
+  → per-node Linear head
+  → output (batch, seq_len, num_nodes, num_classes)
+```
+
+### Per-Node Labels
+
+`GraphDataset.prepare()` keeps independent per-node fault labels with shape `(num_windows, window_size, num_nodes)` instead of collapsing with `max`. The Trainer and Evaluator handle this via their existing `reshape(-1, C)` / `reshape(-1)` logic, which generalizes to any label dimensionality.
+
+### Key Components
+
+- `TemporalConv`: 2-D conv with kernel `(1, K)` — operates along time axis, independent per node.
+- `STConvBlock`: Sandwich of TemporalConv → GCNConv → TemporalConv with residual.
+- `STGCNClassifier`: Stacks ST-Conv blocks, applies per-node linear classifier.
 
 ## CLI Options (inject run)
 

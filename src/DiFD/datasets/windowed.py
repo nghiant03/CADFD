@@ -68,18 +68,20 @@ def create_windows(
 
     Args:
         data: Feature array of shape ``(timesteps, features)``.
-        labels: Label array of shape ``(timesteps,)``.
+        labels: Label array of shape ``(timesteps,)`` or
+            ``(timesteps, num_nodes)`` for per-node labels.
         window_size: Number of timesteps per window.
         stride: Step size between consecutive windows.
 
     Returns:
         Tuple of ``(X, y)`` where X has shape ``(num_windows, window_size, features)``
-        and y has shape ``(num_windows, window_size)``.
+        and y has shape ``(num_windows, window_size, ...)``.
     """
     if len(data) < window_size:
+        y_shape = (0, window_size) + labels.shape[1:]
         return (
             np.empty((0, window_size, data.shape[1]), dtype=np.float32),
-            np.empty((0, window_size), dtype=np.int32),
+            np.empty(y_shape, dtype=np.int32),
         )
 
     starts = list(range(0, len(data) - window_size + 1, stride))
@@ -151,6 +153,7 @@ def collect_splits(
     val_y_parts: list[NDArray[np.int32]],
     test_X_parts: list[NDArray[np.float32]],
     test_y_parts: list[NDArray[np.int32]],
+    label_trailing_shape: tuple[int, ...] = (),
 ) -> tuple[
     NDArray[np.float32],
     NDArray[np.int32],
@@ -161,12 +164,26 @@ def collect_splits(
 ]:
     """Concatenate per-group window parts into final arrays.
 
-    Returns empty arrays with correct shape when no windows were produced.
+    Args:
+        wc: Window configuration.
+        n_feat: Number of features (last axis of X).
+        train_X_parts: Per-group training feature windows.
+        train_y_parts: Per-group training label windows.
+        val_X_parts: Per-group validation feature windows.
+        val_y_parts: Per-group validation label windows.
+        test_X_parts: Per-group test feature windows.
+        test_y_parts: Per-group test label windows.
+        label_trailing_shape: Extra dimensions after ``window_size`` in labels
+            (e.g. ``(num_nodes,)`` for per-node labels, ``()`` for scalar).
+
+    Returns:
+        Concatenated arrays; empty with correct shape when no windows exist.
     """
+    y_empty = (0, wc.window_size) + label_trailing_shape
     X_train = np.concatenate(train_X_parts) if train_X_parts else np.empty((0, wc.window_size, n_feat), dtype=np.float32)
-    y_train = np.concatenate(train_y_parts) if train_y_parts else np.empty((0, wc.window_size), dtype=np.int32)
+    y_train = np.concatenate(train_y_parts) if train_y_parts else np.empty(y_empty, dtype=np.int32)
     X_val = np.concatenate(val_X_parts) if val_X_parts else np.empty((0, wc.window_size, n_feat), dtype=np.float32)
-    y_val = np.concatenate(val_y_parts) if val_y_parts else np.empty((0, wc.window_size), dtype=np.int32)
+    y_val = np.concatenate(val_y_parts) if val_y_parts else np.empty(y_empty, dtype=np.int32)
     X_test = np.concatenate(test_X_parts) if test_X_parts else np.empty((0, wc.window_size, n_feat), dtype=np.float32)
-    y_test = np.concatenate(test_y_parts) if test_y_parts else np.empty((0, wc.window_size), dtype=np.int32)
+    y_test = np.concatenate(test_y_parts) if test_y_parts else np.empty(y_empty, dtype=np.int32)
     return X_train, y_train, X_val, y_val, X_test, y_test

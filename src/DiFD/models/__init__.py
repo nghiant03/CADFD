@@ -2,15 +2,16 @@
 
 This module provides model architectures and a registry system for
 managing different model implementations.
+
+Subpackages:
+    recurrent/    - LSTM, GRU
+    transformer/  - Transformer, Autoformer, Informer, PatchTST
+    graph/        - ST-GCN
 """
 
-from DiFD.models.autoformer import AutoformerClassifier
 from DiFD.models.base import BaseModel
-from DiFD.models.gcn import GCNClassifier
-from DiFD.models.gru import GRUClassifier
-from DiFD.models.informer import InformerClassifier
-from DiFD.models.lstm import LSTMClassifier
-from DiFD.models.transformer import TransformerClassifier
+from DiFD.models.graph import STGCNClassifier
+from DiFD.models.recurrent import GRUClassifier, LSTMClassifier
 from DiFD.models.registry import (
     create_model,
     get_model_class,
@@ -18,14 +19,21 @@ from DiFD.models.registry import (
     list_models,
     register_model,
 )
+from DiFD.models.transformer import (
+    AutoformerClassifier,
+    InformerClassifier,
+    PatchTSTClassifier,
+    TransformerClassifier,
+)
 
 __all__ = [
     "AutoformerClassifier",
     "BaseModel",
-    "GCNClassifier",
     "GRUClassifier",
     "InformerClassifier",
     "LSTMClassifier",
+    "PatchTSTClassifier",
+    "STGCNClassifier",
     "TransformerClassifier",
     "create_model",
     "get_model_class",
