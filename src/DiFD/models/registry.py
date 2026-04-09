@@ -102,14 +102,22 @@ def create_model(
         **kwargs,
     }
 
-    model_kwargs.update(_extract_metadata_kwargs(metadata))
+    model_kwargs.update(_extract_metadata_kwargs(metadata, model_cls.required_metadata))
 
     return model_cls(**model_kwargs)
 
 
-def _extract_metadata_kwargs(metadata: dict[str, Any]) -> dict[str, object]:
-    """Extract model constructor kwargs from dataset metadata."""
+def _extract_metadata_kwargs(
+    metadata: dict[str, Any], required: set[str]
+) -> dict[str, object]:
+    """Extract model constructor kwargs from dataset metadata.
+
+    Only extracts kwargs for metadata keys that the model actually requires.
+    """
     kwargs: dict[str, object] = {}
+
+    if "graph" not in required:
+        return kwargs
 
     from DiFD.datasets.injected.graph import GraphMetadata
 

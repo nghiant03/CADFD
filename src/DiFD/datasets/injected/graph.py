@@ -201,11 +201,17 @@ class GraphDataset(InjectedDataset):
         self,
         window_config: WindowConfig | None = None,
         features: list[str] | None = None,
+        required_metadata: set[str] | None = None,
     ) -> WindowedSplits:
         """Convert this graph dataset into windowed train/val/test arrays.
 
-        Unlike ``InjectedDataset.prepare`` (which windows each group
-        independently), this method aligns ALL sensor groups onto a common
+        When *required_metadata* does not include ``"graph"``, delegates to
+        the parent ``InjectedDataset.prepare()`` which windows each sensor
+        group independently with scalar per-timestep labels.  This allows
+        non-graph models (e.g. CNN1D, LSTM) to train on graph datasets
+        without a shape mismatch.
+
+        Otherwise, this method aligns ALL sensor groups onto a common
         time axis and concatenates their features at each timestep.  The
         resulting ``input_size = num_nodes * features_per_node`` lets the
         ST-GCN reshape and apply graph convolutions across the sensor
@@ -219,6 +225,9 @@ class GraphDataset(InjectedDataset):
             window_config: Windowing configuration. Falls back to the
                 injection config stored inside the dataset.
             features: Subset of feature names. ``None`` uses all features.
+            required_metadata: Metadata keys required by the consumer
+                (e.g. a model). When ``"graph"`` is not in this set the
+                parent tabular preparation is used instead.
 
         Returns:
             WindowedSplits with windowed arrays and graph metadata.
@@ -226,6 +235,13 @@ class GraphDataset(InjectedDataset):
         Raises:
             ValueError: If any name in *features* is not in the dataset.
         """
+        if required_metadata is not None and "graph" not in required_metadata:
+            return InjectedDataset.prepare(
+                self,
+                window_config=window_config,
+                features=features,
+                required_metadata=required_metadata,
+            )
         wc = window_config if window_config is not None else self.config.window
         selected_features = validate_features(features, self.feature_names)
 

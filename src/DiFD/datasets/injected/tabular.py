@@ -146,6 +146,7 @@ class InjectedDataset:
         self,
         window_config: WindowConfig | None = None,
         features: list[str] | None = None,
+        required_metadata: set[str] | None = None,
     ) -> WindowedSplits:
         """Convert this dataset into windowed train/val/test arrays.
 
@@ -162,6 +163,9 @@ class InjectedDataset:
             features: Subset of feature names to use. When ``None``
                 (default), all features from ``self.feature_names``
                 are used.
+            required_metadata: Metadata keys required by the consumer
+                (e.g. a model). Subclasses may use this to choose a
+                preparation strategy. Ignored for tabular datasets.
 
         Returns:
             WindowedSplits with windowed arrays.

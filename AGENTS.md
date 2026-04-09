@@ -11,7 +11,6 @@ This repository is a research project for fault diagnosis analysis.
 
 - Use **ruff** for linting and formatting `.py` source files.
 - Use **pyright** for type checking `.py` source files.
-- Run tests with `uv run pytest`.
 - Do **not** use `TYPE_CHECKING` from `typing`. Use `from __future__ import annotations` and lazy imports inside functions instead.
 - When changing a function, file, class, or variable, **always reconsider whether its name still accurately describes its purpose**. Rename if the name no longer fits.
 
@@ -96,8 +95,8 @@ Pre-injection dataset loaders and registry.
 
 Post-injection containers, graph topology, and windowing.
 
-- `InjectedDataset` (`injected/tabular.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, features) -> WindowedSplits` for per-group chronological windowing.
-- `GraphDataset` (`injected/graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep, keeps **per-node labels** of shape `(num_windows, window_size, num_nodes)`). Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
+- `InjectedDataset` (`injected/tabular.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, features, required_metadata) -> WindowedSplits` for per-group chronological windowing.
+- `GraphDataset` (`injected/graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep, keeps **per-node labels** of shape `(num_windows, window_size, num_nodes)`). When `required_metadata` does not include `"graph"`, delegates to `InjectedDataset.prepare()` so non-graph models work on graph datasets without shape mismatch. Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
 - `GraphMetadata` (`injected/graph.py`) - Typed dataclass holding `adjacency`, `node_ids`, `num_nodes`, `threshold`. Stored in `WindowedSplits.metadata["graph"]` by `GraphDataset.prepare()`.
 - `WindowedSplits` (`injected/windowed.py`) - Unified dataclass holding windowed `X_train/y_train/X_val/y_val/X_test/y_test` arrays + `metadata` dict. Properties: `input_size`, `has_val`, `has_test`.
 - `load_adjacency_matrix` (`injected/graph.py`) - Loads binary adjacency matrix from a connectivity data file (whitespace-separated: `source dest probability`), thresholds by connectivity probability.
@@ -107,13 +106,15 @@ Post-injection containers, graph topology, and windowing.
 
 ### Data Preparation Pattern
 
-All dataset types expose a `.prepare()` method returning `WindowedSplits`. The CLI calls `load_dataset(path)` which returns the right variant, then `dataset.prepare(...)` dispatches polymorphically. Graph metadata travels via `WindowedSplits.metadata["graph"]`.
+All dataset types expose a `.prepare(required_metadata=...)` method returning `WindowedSplits`. The CLI calls `load_dataset(path)` which returns the right variant, then `dataset.prepare(required_metadata=model_cls.required_metadata)` dispatches polymorphically. When a `GraphDataset` receives `required_metadata` without `"graph"`, it falls back to per-group tabular windowing so non-graph models work seamlessly. Graph metadata travels via `WindowedSplits.metadata["graph"]`.
 
 `create_model` accepts `metadata` and automatically validates model requirements and extracts architecture-specific kwargs (e.g. `num_nodes`, `adjacency` for GCN).
 
 ```python
 dataset = load_dataset(data)
-prepared = dataset.prepare(features=config.features)
+model_cls = get_model_class(config.model)
+prepared = dataset.prepare(features=config.features,
+                           required_metadata=model_cls.required_metadata)
 net = create_model(config.model, input_size=prepared.input_size,
                    num_classes=num_classes, metadata=prepared.metadata)
 ```

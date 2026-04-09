@@ -10,7 +10,7 @@ import typer
 from DiFD.datasets import load_dataset
 from DiFD.evaluation import Evaluator
 from DiFD.logging import logger
-from DiFD.models import create_model
+from DiFD.models import create_model, get_model_class
 from DiFD.schema import EvaluateConfig, TrainConfig
 from DiFD.schema.types import FaultType
 from DiFD.training import CheckpointCallback, EarlyStoppingCallback, LoggingCallback, Trainer
@@ -132,7 +132,11 @@ def train_run(
     dataset = load_dataset(data)
     dataset.print_summary()
 
-    prepared = dataset.prepare(features=config.features)
+    model_cls = get_model_class(config.model)
+    prepared = dataset.prepare(
+        features=config.features,
+        required_metadata=model_cls.required_metadata,
+    )
 
     logger.debug(
         "Windowed shapes: X_train={}, y_train={}, X_val={}, y_val={}, X_test={}, y_test={}",

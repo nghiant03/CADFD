@@ -10,7 +10,7 @@ import typer
 from DiFD.datasets import load_dataset
 from DiFD.evaluation import Evaluator
 from DiFD.logging import logger
-from DiFD.models import create_model
+from DiFD.models import create_model, get_model_class
 from DiFD.schema import EvaluateConfig
 from DiFD.schema.types import FaultType
 
@@ -62,7 +62,11 @@ def evaluate_run(
     if isinstance(train_cfg, dict):
         saved_features = train_cfg.get("features")
 
-    prepared = dataset.prepare(features=saved_features)
+    model_cls = get_model_class(model_name)
+    prepared = dataset.prepare(
+        features=saved_features,
+        required_metadata=model_cls.required_metadata,
+    )
 
     if not prepared.has_test:
         logger.error("No test data available in dataset")
