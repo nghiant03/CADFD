@@ -26,7 +26,7 @@ src/DiFD/
 ├── cli/               # Typer CLI with subcommands (inject, prepare, train, evaluate, optimize)
 ├── injection/         # Fault injection: Markov generator, fault injectors, registry
 ├── datasets/          # Dataset loaders and injected containers
-│   ├── raw/           # Pre-injection: BaseDataset, IntelLabDataset, registry
+│   ├── raw/           # Pre-injection: BaseDataset, IntelLabDataset, ESP32DHT11Dataset, registry
 │   └── injected/      # Post-injection: InjectedDataset, GraphDataset, windowing, loading
 ├── models/            # Deep learning model definitions
 │   ├── temporal/      # Temporal models: CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST
@@ -36,6 +36,7 @@ src/DiFD/
 ├── optimization/      # Optuna hyperparameter sweep
 ├── seed.py            # seed_everything() utility for reproducibility
 
+firmware/              # ESP32-S3 Rust firmware (esp-idf-hal, PlatformIO-free)
 config/                # YAML config files per model (lstm.yaml, gru.yaml, etc.)
 data/                  # Raw datasets and injected outputs
 tests/                 # Unit tests per module
@@ -89,6 +90,7 @@ Pre-injection dataset loaders and registry.
 
 - `BaseDataset` (`raw/base.py`) - Abstract base for raw dataset loaders: `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`.
 - `IntelLabDataset` (`raw/intel_lab.py`) - Concrete loader for Intel Berkeley Research Lab sensor data.
+- `ESP32DHT11Dataset` (`raw/esp32_dht11.py`) - Loader for ESP32-S3 DHT11 sensor readings (CSV from MQTT subscriber). Features: `temperature`, `humidity`. Groups by `device_id`.
 - `register_dataset` / `get_dataset` / `list_datasets` (`raw/registry.py`) - Dynamic dataset registry.
 
 ### Injected Sub-package (`datasets/injected/`)
@@ -132,6 +134,51 @@ net = create_model(config.model, input_size=prepared.input_size,
 - `macro_f1` (`metrics.py`) - Macro-averaged F1 from per-class metrics.
 - `Evaluator` (`evaluator.py`) - Runs inference on a dataset, computes all metrics, captures predictions (y_true, y_pred, y_prob), returns `EvalResult`. Handles device placement.
 - `EvalResult` (`evaluator.py`) - Dataclass holding loss, accuracy, macro_f1, per-class ClassMetrics, y_true, y_pred, y_prob. Has `save(path)` to persist `eval_metrics.json` (metrics + configs) and `predictions.npz` (numpy arrays). Has `load(path)` class method.
+
+## Firmware Module (`firmware/`)
+
+Rust firmware for ESP32-S3 with DHT11 sensor, built with `esp-idf-hal` (std environment).
+
+### Structure
+
+```
+firmware/
+├── Cargo.toml            # Dependencies: esp-idf-svc, esp-idf-hal, serde_json
+├── build.rs              # ESP-IDF build integration via embuild
+├── sdkconfig.defaults    # ESP-IDF Kconfig (WiFi, SNTP, MQTT)
+├── .cargo/config.toml    # Target: xtensa-esp32s3-espidf
+└── src/
+    ├── main.rs           # Entry point: init → WiFi → NTP → MQTT loop
+    ├── config.rs         # WiFi SSID/password, MQTT broker, device ID, DHT pin
+    ├── wifi.rs           # BlockingWifi connection via esp-idf-svc
+    ├── mqtt.rs           # EspMqttClient connection and publish
+    └── dht.rs            # Bit-banged DHT11 protocol over GPIO
+```
+
+### MQTT Payload
+
+Publishes JSON to `cafd/readings/<device_id>` every 30s:
+```json
+{"device_id": "esp32_01", "timestamp": 1718000000, "temperature": 25.3, "humidity": 60.1}
+```
+
+### Build & Flash
+
+Requires `espup` (Rust ESP toolchain) and `espflash`:
+```bash
+cd firmware
+cargo build --release
+espflash flash target/xtensa-esp32s3-espidf/release/cafd-firmware --monitor
+```
+
+### Lab Server Stack
+
+ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommended stack:
+- **Mosquitto** — MQTT broker
+- **Telegraf** — MQTT → InfluxDB bridge
+- **InfluxDB** — Time-series storage
+- **Grafana** — Dashboard
+- **Python MQTT subscriber** — Export to `data/raw/esp32_dht11/` CSV for DiFD pipeline
 
 ## Workflow
 

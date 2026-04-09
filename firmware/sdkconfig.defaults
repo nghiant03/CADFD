@@ -1,0 +1,15 @@
+# Rust often requires a bit of esp-idf configuration to use certain features.
+# ESP-IDF configuration options:
+#   https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-reference/kconfig.html
+
+# Enable WiFi
+CONFIG_ESP_WIFI_ENABLED=y
+
+# Enable SNTP for time sync
+CONFIG_LWIP_SNTP_MAX_SERVERS=1
+
+# Increase main task stack size for Rust
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Enable MQTT (via esp-mqtt)
+CONFIG_MQTT_PROTOCOL_311=y
