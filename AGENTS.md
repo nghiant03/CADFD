@@ -21,25 +21,23 @@ This repository is a research project for fault diagnosis analysis.
 ## Project Structure
 
 ```
-src/DiFD/
+src/CADFD/
 ├── schema/            # Pydantic config models: FaultType, FaultConfig, MarkovConfig, WindowConfig, InjectionConfig
-├── cli/               # Typer CLI with subcommands (inject, prepare, train, evaluate, optimize)
+├── cli/               # Typer CLI with subcommands (inject, prepare, train, evaluate)
 ├── injection/         # Fault injection: Markov generator, fault injectors, registry
 ├── datasets/          # Dataset loaders and injected containers
 │   ├── raw/           # Pre-injection: BaseDataset, IntelLabDataset, ESP32DHT11Dataset, registry
 │   └── injected/      # Post-injection: InjectedDataset, GraphDataset, windowing, loading
 ├── models/            # Deep learning model definitions
-│   ├── temporal/      # Temporal models: CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST
+│   ├── temporal/      # Temporal models: CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST, ModernTCN
 │   └── spatial/       # Spatial models: ST-GCN
 ├── training/          # Trainer, focal loss, oversampling, and callbacks
 ├── evaluation/        # Metrics and evaluator
-├── optimization/      # Optuna hyperparameter sweep
 ├── seed.py            # seed_everything() utility for reproducibility
 
 firmware/              # ESP32-S3 Rust firmware (esp-idf-hal, PlatformIO-free)
 config/                # YAML config files per model (lstm.yaml, gru.yaml, etc.)
 data/                  # Raw datasets and injected outputs
-tests/                 # Unit tests per module
 notebooks/             # Jupyter notebooks for analysis
 ```
 
@@ -100,7 +98,7 @@ Post-injection containers, graph topology, and windowing.
 - `InjectedDataset` (`injected/tabular.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, features, required_metadata) -> WindowedSplits` for per-group chronological windowing.
 - `GraphDataset` (`injected/graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep, keeps **per-node labels** of shape `(num_windows, window_size, num_nodes)`). When `required_metadata` does not include `"graph"`, delegates to `InjectedDataset.prepare()` so non-graph models work on graph datasets without shape mismatch. Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
 - `GraphMetadata` (`injected/graph.py`) - Typed dataclass holding `adjacency`, `node_ids`, `num_nodes`, `threshold`. Stored in `WindowedSplits.metadata["graph"]` by `GraphDataset.prepare()`.
-- `WindowedSplits` (`injected/windowed.py`) - Unified dataclass holding windowed `X_train/y_train/X_val/y_val/X_test/y_test` arrays + `metadata` dict. Properties: `input_size`, `has_val`, `has_test`.
+- `WindowedSplits` (`injected/windowed.py`) - Unified dataclass holding windowed data partitions + `metadata` dict. Includes input-shape metadata and split-availability flags.
 - `load_adjacency_matrix` (`injected/graph.py`) - Loads binary adjacency matrix from a connectivity data file (whitespace-separated: `source dest probability`), thresholds by connectivity probability.
 - `load_dataset` (`injected/loading.py`) - Loads the appropriate dataset variant (`InjectedDataset` or `GraphDataset`) based on which files exist on disk.
 - `validate_features` (`injected/windowed.py`) - Shared feature-name validation used by both `InjectedDataset.prepare()` and `GraphDataset.prepare()`.
@@ -178,7 +176,7 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommende
 - **Telegraf** — MQTT → InfluxDB bridge
 - **InfluxDB** — Time-series storage
 - **Grafana** — Dashboard
-- **Python MQTT subscriber** — Export to `data/raw/esp32_dht11/` CSV for DiFD pipeline
+- **Python MQTT subscriber** — Export to `data/raw/esp32_dht11/` CSV for CADFD pipeline
 
 ## Workflow
 
@@ -186,7 +184,6 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommende
 2. **Graph Preparation** (optional): `uv run difd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
 3. **Training**: `uv run difd train run lstm data/injected/intel_lab` or with config: `uv run difd train run lstm data/injected/intel_lab --config config/lstm.yaml`
 4. **Evaluation**: `uv run difd evaluate run --model models/lstm --data data/injected/intel_lab`
-5. **Optimization**: `uv run difd optimize run --data data/injected/intel_lab --n-trials 100`
 
 ## CLI Structure
 
@@ -202,12 +199,9 @@ difd                    # Main entry point
 ├── train               # Training subcommands
 │   ├── run             # Train a model
 │   └── list-models     # List available models
-├── evaluate            # Evaluation subcommands
-│   ├── run             # Evaluate a model
-│   └── metrics         # List available metrics
-└── optimize            # Hyperparameter optimization
-    ├── run             # Run Optuna optimization
-    └── show            # Show study results
+└── evaluate            # Evaluation subcommands
+    ├── run             # Evaluate a model
+    └── metrics         # List available metrics
 ```
 
 Run `difd --help` or `difd <subcommand> --help` for detailed options.
@@ -221,7 +215,7 @@ Run `difd --help` or `difd <subcommand> --help` for detailed options.
 
 ## Adding New Datasets
 
-1. Implement a new dataset class in `src/DiFD/datasets/raw/` subclassing `BaseDataset`.
+1. Implement a new dataset class in `src/CADFD/datasets/raw/` subclassing `BaseDataset`.
 2. Implement: `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`.
 3. Register in `datasets/raw/registry.py` with `register_dataset()`.
 
@@ -238,34 +232,6 @@ To add a new model that needs special metadata:
 1. Set `required_metadata` on the model class.
 2. Add extraction logic to `_extract_metadata_kwargs` in `models/registry.py`.
 
-## ST-GCN Architecture
-
-The `STGCNClassifier` (`models/stgcn.py`) implements a **Spatio-Temporal Graph Convolutional Network** (ST-GCN) inspired by Yu et al. (2018). It performs **per-node, per-timestep** fault classification.
-
-### Architecture
-
-```
-Input  (batch, seq_len, num_nodes * features_per_node)
-  → reshape to (batch, features_per_node, num_nodes, seq_len)
-  → ST-Conv blocks × N:
-      ├─ TemporalConv (1-D conv along time per node)
-      ├─ GCNConv (spatial message-passing across sensor graph)
-      ├─ TemporalConv (1-D conv along time per node)
-      └─ Residual connection + ReLU + Dropout
-  → per-node Linear head
-  → output (batch, seq_len, num_nodes, num_classes)
-```
-
-### Per-Node Labels
-
-`GraphDataset.prepare()` keeps independent per-node fault labels with shape `(num_windows, window_size, num_nodes)` instead of collapsing with `max`. The Trainer and Evaluator handle this via their existing `reshape(-1, C)` / `reshape(-1)` logic, which generalizes to any label dimensionality.
-
-### Key Components
-
-- `TemporalConv`: 2-D conv with kernel `(1, K)` — operates along time axis, independent per node.
-- `STConvBlock`: Sandwich of TemporalConv → GCNConv → TemporalConv with residual.
-- `STGCNClassifier`: Stacks ST-Conv blocks, applies per-node linear classifier.
-
 ## CLI Options (inject run)
 
 CLI options use `None` defaults; actual defaults come from schema classes.
@@ -280,7 +246,7 @@ OUTPUT                 Output path for .npz file (required positional argument)
 -a, --all-features     All features to include in output
 -w, --window-size      Window size in timesteps (default from WindowConfig: 60)
 --train-stride         Stride for training windows (default from WindowConfig: 10)
---test-stride          Stride for test windows (default from WindowConfig: 60)
+--evaluation-stride    Stride for held-out windows (default from WindowConfig: 60)
 --spike-prob           Transition probability to spike (default from MarkovConfig: 0.02)
 --drift-prob           Transition probability to drift (default from MarkovConfig: 0.01)
 --stuck-prob           Transition probability to stuck (default from MarkovConfig: 0.015)

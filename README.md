@@ -1,11 +1,11 @@
-# CAFD — Context-Aware Fault Diagnosis
+# CADFD: Communication-Aware Distributed Fault Diagnosis
 
 A research framework for **sensor fault diagnosis** using deep learning on time-series data. Supports Markov-chain fault injection, temporal and spatio-temporal models, and end-to-end experiment pipelines — from raw sensor readings to evaluated classifiers.
 
 ## Features
 
 - **Markov-chain fault injection** — Simulates realistic sensor faults (spike, drift, stuck) with configurable transition probabilities and durations
-- **Temporal models** — CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST
+- **Temporal models** — CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST, ModernTCN
 - **Spatio-temporal models** — ST-GCN with graph-based sensor topology and per-node classification
 - **Focal loss & oversampling** — Handles class imbalance common in fault diagnosis datasets
 - **Optuna hyperparameter optimization** — Automated sweep with configurable trials and storage
@@ -56,7 +56,7 @@ src/DiFD/
 │   ├── raw/           # Dataset loaders: IntelLab, ESP32-DHT11, registry
 │   └── injected/      # InjectedDataset, GraphDataset, windowing
 ├── models/
-│   ├── temporal/      # CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST
+│   ├── temporal/      # CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST, ModernTCN
 │   └── spatial/       # ST-GCN
 ├── training/          # Trainer, focal loss, oversampling, callbacks
 ├── evaluation/        # Metrics, evaluator
@@ -66,7 +66,6 @@ src/DiFD/
 firmware/              # ESP32-S3 Rust firmware (esp-idf-hal)
 config/                # YAML config files per model
 data/                  # Raw datasets and injected outputs
-tests/                 # Unit tests
 ```
 
 ## CLI Reference
@@ -136,7 +135,6 @@ Requires [espup](https://github.com/esp-rs/espup) and [espflash](https://github.
 uv run ruff check src/          # Lint
 uv run ruff format src/         # Format
 uv run pyright src/             # Type check
-uv run pytest                   # Tests
 ```
 
 ## Extending
