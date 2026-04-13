@@ -13,15 +13,15 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from DiFD.datasets.injected.tabular import InjectedDataset
-from DiFD.datasets.injected.windowed import (
+from CADFD.datasets.injected.tabular import InjectedDataset
+from CADFD.datasets.injected.windowed import (
     WindowedSplits,
     split_and_window,
     collect_splits,
     validate_features,
 )
-from DiFD.logging import logger
-from DiFD.schema.types import WindowConfig
+from CADFD.logging import logger
+from CADFD.schema.types import WindowConfig
 
 
 @dataclass

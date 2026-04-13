@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from DiFD.schema.types import WindowConfig
+from CADFD.schema.types import WindowConfig
 
 
 @dataclass

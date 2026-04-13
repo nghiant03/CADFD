@@ -14,7 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from DiFD.schema.types import FaultType, MarkovConfig, WindowConfig
+from CADFD.schema.types import FaultType, MarkovConfig, WindowConfig
 
 
 class InjectionConfig(BaseModel):

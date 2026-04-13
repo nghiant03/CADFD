@@ -5,8 +5,8 @@ from typing import Annotated, Optional
 
 import typer
 
-from DiFD.logging import logger
-from DiFD.schema import OptimizeConfig
+from CADFD.logging import logger
+from CADFD.schema import OptimizeConfig
 
 app = typer.Typer(no_args_is_help=True)
 

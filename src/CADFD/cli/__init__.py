@@ -1,17 +1,17 @@
-"""DiFD CLI - Centralized command-line interface using Typer."""
+"""CADFD CLI - Centralized command-line interface using Typer."""
 
 import typer
 
-from DiFD.cli.evaluate import app as evaluate_app
-from DiFD.cli.inject import app as inject_app
-from DiFD.cli.optimize import app as optimize_app
-from DiFD.cli.prepare import app as prepare_app
-from DiFD.cli.train import app as train_app
-from DiFD.logging import configure_logging
+from CADFD.cli.evaluate import app as evaluate_app
+from CADFD.cli.inject import app as inject_app
+from CADFD.cli.optimize import app as optimize_app
+from CADFD.cli.prepare import app as prepare_app
+from CADFD.cli.train import app as train_app
+from CADFD.logging import configure_logging
 
 app = typer.Typer(
-    name="difd",
-    help="DiFD - Deep Learning Fault Diagnosis CLI",
+    name="cadfd",
+    help="CADFD - Communication-Aware Distributed Fault Diagnosis",
     no_args_is_help=True,
 )
 

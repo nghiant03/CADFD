@@ -17,11 +17,11 @@ import torch.nn as nn
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, TensorDataset
 
-from DiFD.logging import logger
-from DiFD.models.base import BaseModel
-from DiFD.schema import EvaluateConfig
-from DiFD.schema.types import FaultType
-from DiFD.training.callbacks import ClassMetrics
+from CADFD.logging import logger
+from CADFD.models.base import BaseModel
+from CADFD.schema import EvaluateConfig
+from CADFD.schema.types import FaultType
+from CADFD.training.callbacks import ClassMetrics
 
 from .metrics import compute_class_metrics, macro_f1
 

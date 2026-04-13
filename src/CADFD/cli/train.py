@@ -7,14 +7,14 @@ from typing import Annotated, Optional
 
 import typer
 
-from DiFD.datasets import load_dataset
-from DiFD.evaluation import Evaluator
-from DiFD.logging import logger
-from DiFD.models import create_model, get_model_class
-from DiFD.schema import EvaluateConfig, TrainConfig
-from DiFD.schema.types import FaultType
-from DiFD.training import CheckpointCallback, EarlyStoppingCallback, LoggingCallback, Trainer
-from DiFD.training.trainer import _build_loss
+from CADFD.datasets import load_dataset
+from CADFD.evaluation import Evaluator
+from CADFD.logging import logger
+from CADFD.models import create_model, get_model_class
+from CADFD.schema import EvaluateConfig, TrainConfig
+from CADFD.schema.types import FaultType
+from CADFD.training import CheckpointCallback, EarlyStoppingCallback, LoggingCallback, Trainer
+from CADFD.training.trainer import _build_loss
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -229,7 +229,7 @@ def train_list_models() -> None:
     from rich.console import Console
     from rich.table import Table
 
-    from DiFD.models import list_models
+    from CADFD.models import list_models
 
     console = Console()
     table = Table(title="Available Models", show_header=True)

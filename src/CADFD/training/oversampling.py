@@ -7,8 +7,8 @@ by duplicating windows that contain at least one non-normal label.
 import numpy as np
 from numpy.typing import NDArray
 
-from DiFD.logging import logger
-from DiFD.schema.types import FaultType
+from CADFD.logging import logger
+from CADFD.schema.types import FaultType
 
 
 def oversample_minority(

@@ -6,9 +6,9 @@ from typing import Annotated, Optional
 
 import typer
 
-from DiFD.logging import logger
-from DiFD.schema import FaultConfig, FaultType, InjectionConfig, MarkovConfig, WindowConfig
-from DiFD.seed import seed_everything
+from CADFD.logging import logger
+from CADFD.schema import FaultConfig, FaultType, InjectionConfig, MarkovConfig, WindowConfig
+from CADFD.seed import seed_everything
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -164,8 +164,8 @@ def inject_run(
     ] = None,
 ) -> None:
     """Run fault injection on a dataset."""
-    from DiFD.datasets import get_dataset
-    from DiFD.injection import FaultInjector
+    from CADFD.datasets import get_dataset
+    from CADFD.injection import FaultInjector
 
     # Load base config from file if provided
     if config and config.exists():
@@ -266,7 +266,7 @@ def inject_list_datasets() -> None:
     from rich.console import Console
     from rich.table import Table
 
-    from DiFD.datasets import list_datasets
+    from CADFD.datasets import list_datasets
 
     console = Console()
     datasets = list_datasets()

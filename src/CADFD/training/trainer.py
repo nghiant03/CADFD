@@ -17,19 +17,19 @@ import torch.nn as nn
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, TensorDataset
 
-from DiFD.logging import logger
-from DiFD.models.base import BaseModel
-from DiFD.schema import TrainConfig
-from DiFD.seed import seed_everything
-from DiFD.evaluation.metrics import compute_class_metrics, macro_f1
-from DiFD.training.callbacks import (
+from CADFD.logging import logger
+from CADFD.models.base import BaseModel
+from CADFD.schema import TrainConfig
+from CADFD.seed import seed_everything
+from CADFD.evaluation.metrics import compute_class_metrics, macro_f1
+from CADFD.training.callbacks import (
     ClassMetrics,
     LoggingCallback,
     TrainMetrics,
     TrainingCallback,
 )
-from DiFD.training.loss import FocalLoss
-from DiFD.training.oversampling import oversample_minority
+from CADFD.training.loss import FocalLoss
+from CADFD.training.oversampling import oversample_minority
 
 _DEPRECATED_VAL_RATIO_MSG = (
     "TrainConfig.val_ratio is deprecated. "
@@ -292,7 +292,7 @@ class Trainer:
     @staticmethod
     def _log_class_metrics(split_name: str, cm: ClassMetrics) -> None:
         """Log per-class metrics table."""
-        from DiFD.schema.types import FaultType
+        from CADFD.schema.types import FaultType
 
         names = FaultType.names()
         logger.info("--- {} Per-Class Metrics ---", split_name)

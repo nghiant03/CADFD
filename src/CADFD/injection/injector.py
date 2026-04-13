@@ -8,11 +8,11 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from DiFD.datasets import InjectedDataset
-from DiFD.datasets.raw.base import BaseDataset
-from DiFD.injection.markov import MarkovStateGenerator
-from DiFD.injection.registry import get_injector
-from DiFD.schema import InjectionConfig
+from CADFD.datasets import InjectedDataset
+from CADFD.datasets.raw.base import BaseDataset
+from CADFD.injection.markov import MarkovStateGenerator
+from CADFD.injection.registry import get_injector
+from CADFD.schema import InjectionConfig
 
 
 class FaultInjector:

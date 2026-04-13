@@ -4,13 +4,13 @@ This module exports the fundamental types and configuration classes
 shared across all phases: injection, training, and evaluation.
 """
 
-from DiFD.schema.config import (
+from CADFD.schema.config import (
     EvaluateConfig,
     InjectionConfig,
     OptimizeConfig,
     TrainConfig,
 )
-from DiFD.schema.types import FaultConfig, FaultType, MarkovConfig, WindowConfig
+from CADFD.schema.types import FaultConfig, FaultType, MarkovConfig, WindowConfig
 
 __all__ = [
     "FaultType",

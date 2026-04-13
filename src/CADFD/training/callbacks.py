@@ -11,8 +11,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from DiFD.logging import logger
-from DiFD.models.base import BaseModel
+from CADFD.logging import logger
+from CADFD.models.base import BaseModel
 
 
 @dataclass

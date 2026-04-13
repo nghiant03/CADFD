@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from DiFD.logging import logger
+from CADFD.logging import logger
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -33,7 +33,7 @@ def prepare_graph(
     builds a binary adjacency matrix, and saves it alongside the existing
     injected dataset files.
     """
-    from DiFD.datasets.injected.graph import GraphDataset
+    from CADFD.datasets.injected.graph import GraphDataset
 
     if not data.exists():
         logger.error("Dataset directory not found: {}", data)

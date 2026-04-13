@@ -8,17 +8,17 @@ Sub-packages
 - ``injected`` — Post-injection containers, graph topology, and windowing.
 """
 
-from DiFD.datasets.injected.graph import (
+from CADFD.datasets.injected.graph import (
     GraphDataset,
     GraphMetadata,
     load_adjacency_matrix,
 )
-from DiFD.datasets.injected.loading import load_dataset
-from DiFD.datasets.injected.tabular import InjectedDataset
-from DiFD.datasets.injected.windowed import WindowedSplits
-from DiFD.datasets.raw.base import BaseDataset
-from DiFD.datasets.raw.intel_lab import IntelLabDataset
-from DiFD.datasets.raw.registry import get_dataset, list_datasets, register_dataset
+from CADFD.datasets.injected.loading import load_dataset
+from CADFD.datasets.injected.tabular import InjectedDataset
+from CADFD.datasets.injected.windowed import WindowedSplits
+from CADFD.datasets.raw.base import BaseDataset
+from CADFD.datasets.raw.intel_lab import IntelLabDataset
+from CADFD.datasets.raw.registry import get_dataset, list_datasets, register_dataset
 
 __all__ = [
     "BaseDataset",

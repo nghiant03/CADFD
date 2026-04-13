@@ -1,11 +1,11 @@
-"""DiFD - Deep Learning Fault Diagnosis.
+"""CADFD - Deep Learning Fault Diagnosis.
 
 A research framework for fault diagnosis using deep learning
 on sensor time series data.
 """
 
-from DiFD.datasets import InjectedDataset
-from DiFD.schema import (
+from CADFD.datasets import InjectedDataset
+from CADFD.schema import (
     FaultConfig,
     FaultType,
     InjectionConfig,

@@ -3,8 +3,8 @@
 Provides the Evaluator class and metric computation utilities.
 """
 
-from DiFD.evaluation.evaluator import EvalResult, Evaluator
-from DiFD.evaluation.metrics import compute_class_metrics, macro_f1
+from CADFD.evaluation.evaluator import EvalResult, Evaluator
+from CADFD.evaluation.metrics import compute_class_metrics, macro_f1
 
 __all__ = [
     "EvalResult",

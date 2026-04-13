@@ -7,7 +7,7 @@ transitions from one fault type to another must go through NORMAL first.
 import numpy as np
 from numpy.typing import NDArray
 
-from DiFD.schema import FaultType, MarkovConfig
+from CADFD.schema import FaultType, MarkovConfig
 
 
 class MarkovStateGenerator:

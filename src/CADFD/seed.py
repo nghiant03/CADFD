@@ -8,7 +8,7 @@ import random
 import numpy as np
 import torch
 
-from DiFD.logging import logger
+from CADFD.logging import logger
 
 
 def seed_everything(seed: int) -> None:

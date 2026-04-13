@@ -1,6 +1,6 @@
 """Centralized logging configuration using loguru.
 
-This module provides a pre-configured logger for the DiFD project.
+This module provides a pre-configured logger for the CADFD project.
 """
 
 import sys

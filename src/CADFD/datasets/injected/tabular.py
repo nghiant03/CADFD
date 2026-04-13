@@ -17,14 +17,14 @@ from numpy.typing import NDArray
 from rich.console import Console
 from rich.table import Table
 
-from DiFD.datasets.injected.windowed import (
+from CADFD.datasets.injected.windowed import (
     WindowedSplits,
     split_and_window,
     collect_splits,
     validate_features,
 )
-from DiFD.schema import InjectionConfig
-from DiFD.schema.types import FaultType, WindowConfig
+from CADFD.schema import InjectionConfig
+from CADFD.schema.types import FaultType, WindowConfig
 
 
 @dataclass

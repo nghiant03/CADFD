@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import torch
 
-from DiFD.training.callbacks import ClassMetrics
+from CADFD.training.callbacks import ClassMetrics
 
 
 def compute_class_metrics(

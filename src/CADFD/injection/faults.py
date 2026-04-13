@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from DiFD.injection.base import BaseFaultInjector
+from CADFD.injection.base import BaseFaultInjector
 
 
 class SpikeFaultInjector(BaseFaultInjector):

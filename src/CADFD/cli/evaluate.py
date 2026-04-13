@@ -7,12 +7,12 @@ from typing import Annotated, Optional
 
 import typer
 
-from DiFD.datasets import load_dataset
-from DiFD.evaluation import Evaluator
-from DiFD.logging import logger
-from DiFD.models import create_model, get_model_class
-from DiFD.schema import EvaluateConfig
-from DiFD.schema.types import FaultType
+from CADFD.datasets import load_dataset
+from CADFD.evaluation import Evaluator
+from CADFD.logging import logger
+from CADFD.models import create_model, get_model_class
+from CADFD.schema import EvaluateConfig
+from CADFD.schema.types import FaultType
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -41,7 +41,7 @@ def evaluate_run(
     """Evaluate a trained model on test data."""
     import torch
 
-    from DiFD.models.base import BaseModel
+    from CADFD.models.base import BaseModel
 
     config = EvaluateConfig(
         batch_size=batch_size if batch_size is not None else _defaults.batch_size,
