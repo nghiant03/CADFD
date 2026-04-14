@@ -30,25 +30,25 @@ uv sync
 
 ```bash
 # 1. Inject faults into raw sensor data
-uv run difd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab
+uv run cadfd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab
 
 # 2. (Optional) Add graph topology for spatio-temporal models
-uv run difd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt
+uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt
 
 # 3. Train a model
-uv run difd train run lstm data/injected/intel_lab
+uv run cadfd train run lstm data/injected/intel_lab
 
 # 4. Evaluate
-uv run difd evaluate run --model models/lstm --data data/injected/intel_lab
+uv run cadfd evaluate run --model models/lstm --data data/injected/intel_lab
 
 # 5. (Optional) Hyperparameter optimization
-uv run difd optimize run --data data/injected/intel_lab --n-trials 100
+uv run cadfd optimize run --data data/injected/intel_lab --n-trials 100
 ```
 
 ## Project Structure
 
 ```
-src/DiFD/
+src/CADFD/
 ├── schema/            # Pydantic config models
 ├── cli/               # Typer CLI (inject, prepare, train, evaluate, optimize)
 ├── injection/         # Markov generator, fault injectors, registry
@@ -71,7 +71,7 @@ data/                  # Raw datasets and injected outputs
 ## CLI Reference
 
 ```
-difd
+cadfd
 ├── inject
 │   ├── run             # Run fault injection on a dataset
 │   └── list-datasets   # List registered dataset loaders
@@ -88,7 +88,7 @@ difd
     └── show            # Display study results
 ```
 
-Run `uv run difd --help` for full options.
+Run `uv run cadfd --help` for full options.
 
 ## Fault Types
 
@@ -106,10 +106,10 @@ Fault sequences are generated via a **Markov chain** with configurable transitio
 Training configs are YAML files in `config/`:
 
 ```bash
-uv run difd train run lstm data/injected/intel_lab --config config/lstm.yaml
+uv run cadfd train run lstm data/injected/intel_lab --config config/lstm.yaml
 ```
 
-All defaults are defined in Pydantic schema classes (`src/DiFD/schema/`). CLI arguments override config file values, which override schema defaults.
+All defaults are defined in Pydantic schema classes (`src/CADFD/schema/`). CLI arguments override config file values, which override schema defaults.
 
 ## Firmware
 
@@ -141,7 +141,7 @@ uv run pyright src/             # Type check
 
 ### Add a new dataset
 
-1. Subclass `BaseDataset` in `src/DiFD/datasets/raw/`
+1. Subclass `BaseDataset` in `src/CADFD/datasets/raw/`
 2. Implement `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`
 3. Register in `datasets/raw/registry.py`
 
