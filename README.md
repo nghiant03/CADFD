@@ -1,5 +1,7 @@
 # CADFD: Communication-Aware Distributed Fault Diagnosis
 
+## Overview
+
 A research framework for **sensor fault diagnosis** using deep learning on time-series data. Supports Markov-chain fault injection, temporal and spatio-temporal models, and end-to-end experiment pipelines — from raw sensor readings to evaluated classifiers.
 
 ## Features
@@ -9,16 +11,16 @@ A research framework for **sensor fault diagnosis** using deep learning on time-
 - **Spatio-temporal models** — ST-GCN with graph-based sensor topology and per-node classification
 - **Focal loss & oversampling** — Handles class imbalance common in fault diagnosis datasets
 - **Optuna hyperparameter optimization** — Automated sweep with configurable trials and storage
-- **ESP32-S3 firmware** — Rust firmware for real-world DHT11 sensor data collection via MQTT
+- **ESP32-S3 firmware** — Rust firmware for real-world DHT11 sensor data collection via MQTT; see [`firmware/README.md`](firmware/README.md)
 
-## Quickstart
+## Getting Started
 
 ### Requirements
 
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/) for environment management
 
-### Install
+### Installation
 
 ```bash
 git clone https://github.com/Sinner/CAFD.git
@@ -26,7 +28,7 @@ cd CAFD
 uv sync
 ```
 
-### Pipeline
+### Usage
 
 ```bash
 # 1. Inject faults into raw sensor data
@@ -68,7 +70,7 @@ config/                # YAML config files per model
 data/                  # Raw datasets and injected outputs
 ```
 
-## CLI Reference
+## CLI
 
 ```
 cadfd
@@ -113,21 +115,7 @@ All defaults are defined in Pydantic schema classes (`src/CADFD/schema/`). CLI a
 
 ## Firmware
 
-Rust firmware for ESP32-S3 with DHT11 sensor. Publishes readings via MQTT:
-
-```json
-{"device_id": "esp32_01", "timestamp": 1718000000, "temperature": 25.3, "humidity": 60.1}
-```
-
-Build and flash:
-
-```bash
-cd firmware
-cargo build --release
-espflash flash target/xtensa-esp32s3-espidf/release/cafd-firmware --monitor
-```
-
-Requires [espup](https://github.com/esp-rs/espup) and [espflash](https://github.com/esp-rs/espflash).
+See [`firmware/README.md`](firmware/README.md) for firmware requirements, configuration, usage, MQTT payload format, and deployment notes.
 
 ## Development
 
@@ -137,7 +125,7 @@ uv run ruff format src/         # Format
 uv run pyright src/             # Type check
 ```
 
-## Extending
+## Extension
 
 ### Add a new dataset
 
