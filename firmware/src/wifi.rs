@@ -21,13 +21,27 @@ pub fn connect() -> BlockingWifi<EspWifi<'static>> {
     }))
     .unwrap();
 
-    info!("[wifi] connecting to {}", config::WIFI_SSID);
+    info!("[Wifi] Connecting to {}", config::WIFI_SSID);
     wifi.start().unwrap();
-    wifi.connect().unwrap();
+
+    let max_retries = 5;
+    for attempt in 1..=max_retries {
+        info!("[Wifi] Connection attempt {}/{}", attempt, max_retries);
+        match wifi.connect() {
+            Ok(_) => break,
+            Err(e) => {
+                log::warn!("[Wifi] Attempt {} failed: {:?}", attempt, e);
+                if attempt == max_retries {
+                    panic!("[Wifi] Failed to connect after {} attempts", max_retries);
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        }
+    }
     wifi.wait_netif_up().unwrap();
 
     let ip_info = wifi.wifi().sta_netif().get_ip_info().unwrap();
-    info!("[wifi] connected — IP {}", ip_info.ip);
+    info!("[Wifi] Connected, IP {}", ip_info.ip);
 
     wifi
 }

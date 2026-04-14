@@ -9,9 +9,8 @@ pub const MQTT_PASSWORD: &str = "";
 pub const DEVICE_ID: &str = "esp32_01";
 pub const MQTT_TOPIC_PREFIX: &str = "cafd/readings/";
 
-pub const DHT_PIN: i32 = 4;
+pub const DHT_PIN: i32 = 5;
 
-/// Send interval in seconds (30s matches DiFD resample_freq default).
 pub const SEND_INTERVAL_SECS: u64 = 30;
 
 pub const NTP_SERVER: &str = "pool.ntp.org";

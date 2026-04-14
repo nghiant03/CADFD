@@ -18,17 +18,17 @@ pub fn connect() -> EspMqttClient<'static> {
         ..Default::default()
     };
 
-    info!("[mqtt] connecting to {}:{}", config::MQTT_SERVER, config::MQTT_PORT);
+    info!("[MQTT] Connecting to {}:{}", config::MQTT_SERVER, config::MQTT_PORT);
 
     let client = EspMqttClient::new_cb(
         &broker_url,
         &mqtt_config,
         |event| {
-            log::debug!("[mqtt] event: {:?}", event.payload());
+            log::debug!("[MQTT] Event: {:?}", event.payload());
         },
     )
-    .expect("failed to create MQTT client");
+    .expect("Failed to create MQTT client");
 
-    info!("[mqtt] connected");
+    info!("[MQTT] connected");
     client
 }

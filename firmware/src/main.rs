@@ -13,10 +13,11 @@ fn main() {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    info!("[cafd] device {} starting", config::DEVICE_ID);
+    info!("[CAFD] Device {} starting", config::DEVICE_ID);
 
-    let peripherals = esp_idf_hal::peripherals::Peripherals::take().unwrap();
-    let mut dht_sensor = dht::Dht11Sensor::new(peripherals.pins.gpio4);
+    let _peripherals = esp_idf_hal::peripherals::Peripherals::take().unwrap();
+    let dht_pin = unsafe { esp_idf_hal::gpio::AnyIOPin::new(config::DHT_PIN) };
+    let mut dht_sensor = dht::Dht11Sensor::new(dht_pin);
 
     let _wifi = wifi::connect();
     sync_time();
@@ -36,12 +37,12 @@ fn main() {
                 let msg = serde_json::to_string(&payload).unwrap();
 
                 match mqtt_client.publish(&topic, esp_idf_svc::mqtt::client::QoS::AtLeastOnce, false, msg.as_bytes()) {
-                    Ok(_) => info!("[mqtt] {} → {}", topic, msg),
-                    Err(e) => log::error!("[mqtt] publish failed: {:?}", e),
+                    Ok(_) => info!("[MQTT] {} → {}", topic, msg),
+                    Err(e) => log::error!("[MQTT] Publish failed: {:?}", e),
                 }
             }
             Err(e) => {
-                log::warn!("[dht] read failed: {:?}, skipping", e);
+                log::warn!("[DHT] Read failed: {:?}, skipping", e);
             }
         }
 
@@ -50,8 +51,8 @@ fn main() {
 }
 
 fn sync_time() {
-    info!("[ntp] syncing time from {}", config::NTP_SERVER);
-    let sntp = EspSntp::new_default().expect("failed to create SNTP client");
+    info!("[NTP] Syncing time from {}", config::NTP_SERVER);
+    let sntp = EspSntp::new_default().expect("Failed to create SNTP client");
 
     let mut attempts = 0;
     while sntp.get_sync_status() != SyncStatus::Completed && attempts < 20 {
@@ -60,9 +61,9 @@ fn sync_time() {
     }
 
     if sntp.get_sync_status() == SyncStatus::Completed {
-        info!("[ntp] time synced");
+        info!("[NTP] Time synced");
     } else {
-        log::warn!("[ntp] sync timed out — timestamps may use uptime");
+        log::warn!("[NTP] Sync timed out, timestamps may use uptime");
     }
 
     std::mem::forget(sntp);
