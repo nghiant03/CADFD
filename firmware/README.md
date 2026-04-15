@@ -10,6 +10,8 @@ Required tools:
 
 - `espup` for the Espressif Rust toolchain
 - `espflash` for flashing and serial monitoring
+- `ldproxy` as required by `esp` toolchain
+- ``
 - ESP-IDF host dependencies required by the managed toolchain on your system
 
 ## Project Structure

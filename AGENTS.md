@@ -165,6 +165,7 @@ Publishes JSON to `cafd/readings/<device_id>` every 30s:
 Requires `espup` (Rust ESP toolchain) and `espflash`:
 ```bash
 cd firmware
+cargo check
 cargo build --release
 espflash flash target/xtensa-esp32s3-espidf/release/cafd-firmware --monitor
 ```
