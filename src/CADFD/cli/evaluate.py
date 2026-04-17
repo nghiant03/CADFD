@@ -100,8 +100,8 @@ def evaluate_run(
     logger.info("Results saved to: {}", save_dir)
 
 
-@app.command("metrics")
-def evaluate_metrics() -> None:
+@app.command("list")
+def evaluate_list() -> None:
     """List available evaluation metrics."""
     from rich.console import Console
     from rich.table import Table
@@ -109,7 +109,7 @@ def evaluate_metrics() -> None:
     metrics = ["accuracy", "precision", "recall", "f1", "confusion_matrix", "roc_auc"]
     console = Console()
     table = Table(title="Available Metrics", show_header=True)
-    table.add_column("Name", style="cyan")
+    table.add_column("Name", style="cyan", min_width=len(table.title or ""))
     for m in metrics:
         table.add_row(m)
     console.print(table)

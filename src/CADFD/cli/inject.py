@@ -260,8 +260,8 @@ def inject_run(
     result.print_summary()
 
 
-@app.command("list-datasets")
-def inject_list_datasets() -> None:
+@app.command("list")
+def inject_list() -> None:
     """List available datasets."""
     from rich.console import Console
     from rich.table import Table
@@ -271,7 +271,7 @@ def inject_list_datasets() -> None:
     console = Console()
     datasets = list_datasets()
     table = Table(title="Available Datasets", show_header=True)
-    table.add_column("Name", style="cyan")
+    table.add_column("Name", style="cyan", min_width=len(table.title or ""))
     for ds in datasets:
         table.add_row(ds)
     console.print(table)

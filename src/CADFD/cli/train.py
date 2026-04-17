@@ -223,8 +223,8 @@ def train_run(
         logger.info("Results saved to: {}", output_path)
 
 
-@app.command("list-models")
-def train_list_models() -> None:
+@app.command("list")
+def train_list() -> None:
     """List available model architectures."""
     from rich.console import Console
     from rich.table import Table
@@ -233,7 +233,7 @@ def train_list_models() -> None:
 
     console = Console()
     table = Table(title="Available Models", show_header=True)
-    table.add_column("Name", style="cyan")
+    table.add_column("Name", style="cyan", min_width=len(table.title or ""))
     for m in list_models():
         table.add_row(m)
     console.print(table)
