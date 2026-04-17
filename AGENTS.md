@@ -181,31 +181,31 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommende
 
 ## Workflow
 
-1. **Fault Injection**: `uv run difd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
-2. **Graph Preparation** (optional): `uv run difd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
-3. **Training**: `uv run difd train run lstm data/injected/intel_lab` or with config: `uv run difd train run lstm data/injected/intel_lab --config config/lstm.yaml`
-4. **Evaluation**: `uv run difd evaluate run --model models/lstm --data data/injected/intel_lab`
+1. **Fault Injection**: `uv run cadfd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
+2. **Graph Preparation** (optional): `uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
+3. **Training**: `uv run cadfd train run lstm data/injected/intel_lab` or with config: `uv run cadfd train run lstm data/injected/intel_lab --config config/lstm.yaml`
+4. **Evaluation**: `uv run cadfd evaluate run --model models/lstm --data data/injected/intel_lab`
 
 ## CLI Structure
 
 The CLI uses **Typer** with a centralized command namespace:
 
 ```
-difd                    # Main entry point
+cadfd                    # Main entry point
 ├── inject              # Fault injection subcommands
 │   ├── run             # Run fault injection
-│   └── list-datasets   # List available datasets
+│   └── list            # List available datasets
 ├── prepare             # Data preparation subcommands
 │   └── graph           # Add graph topology to injected dataset
 ├── train               # Training subcommands
 │   ├── run             # Train a model
-│   └── list-models     # List available models
+│   └── list            # List available models
 └── evaluate            # Evaluation subcommands
     ├── run             # Evaluate a model
-    └── metrics         # List available metrics
+    └── list            # List available metrics
 ```
 
-Run `difd --help` or `difd <subcommand> --help` for detailed options.
+Run `cadfd --help` or `cadfd <subcommand> --help` for detailed options.
 
 ## Adding New Fault Types
 

@@ -76,15 +76,15 @@ data/                  # Raw datasets and injected outputs
 cadfd
 ├── inject
 │   ├── run             # Run fault injection on a dataset
-│   └── list-datasets   # List registered dataset loaders
+│   └── list            # List registered dataset loaders
 ├── prepare
 │   └── graph           # Add graph topology to injected dataset
 ├── train
 │   ├── run             # Train a model
-│   └── list-models     # List available model architectures
+│   └── list            # List available model architectures
 ├── evaluate
 │   ├── run             # Evaluate a trained model
-│   └── metrics         # List available metrics
+│   └── list            # List available metrics
 └── optimize
     ├── run             # Run Optuna hyperparameter optimization
     └── show            # Display study results
