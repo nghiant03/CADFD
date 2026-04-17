@@ -5,7 +5,6 @@ Runs inference on a dataset and computes classification metrics.
 
 from __future__ import annotations
 
-import csv
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,9 +20,8 @@ from CADFD.logging import logger
 from CADFD.models.base import BaseModel
 from CADFD.schema import EvaluateConfig
 from CADFD.schema.types import FaultType
-from CADFD.training.callbacks import ClassMetrics
 
-from .metrics import compute_class_metrics, macro_f1
+from .metrics import ClassMetrics, compute_class_metrics, confusion_matrix, macro_f1
 
 
 @dataclass
@@ -57,8 +55,9 @@ class EvalResult:
         """Save evaluation results, predictions, and configs to a directory.
 
         Writes:
-            - ``eval_metrics.json``: aggregate and per-class metrics + configs
-            - ``predictions.npz``: y_true, y_pred, y_prob arrays
+            - ``eval_metrics.json``: aggregate, per-class metrics, and embedded configs.
+            - ``predictions.npz``: integer ``y_true``/``y_pred`` and ``y_prob`` arrays.
+            - ``confusion_matrix.npy``: ``(num_classes, num_classes)`` integer matrix.
 
         Args:
             path: Directory to save into (created if needed).
@@ -79,11 +78,16 @@ class EvalResult:
                     "support": self.class_metrics.support[i],
                 }
 
+        num_classes = len(names)
+        cm = confusion_matrix(self.y_true, self.y_pred, num_classes)
+
         metrics_dict: dict[str, Any] = {
             "loss": self.loss,
             "accuracy": self.accuracy,
             "macro_f1": self.macro_f1,
             "per_class": per_class,
+            "class_names": names,
+            "confusion_matrix": cm.tolist(),
         }
         if train_config is not None:
             metrics_dict["train_config"] = train_config
@@ -92,15 +96,12 @@ class EvalResult:
 
         (directory / "eval_metrics.json").write_text(json.dumps(metrics_dict, indent=2))
 
-        prob_columns = [f"prob_{n.lower()}" for n in names]
-        with (directory / "predictions.csv").open("w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["y_true", "y_pred"] + prob_columns)
-            for idx in range(len(self.y_true)):
-                true_name = names[self.y_true[idx]] if self.y_true[idx] < len(names) else str(self.y_true[idx])
-                pred_name = names[self.y_pred[idx]] if self.y_pred[idx] < len(names) else str(self.y_pred[idx])
-                probs = [f"{p:.6f}" for p in self.y_prob[idx]] if idx < len(self.y_prob) else []
-                writer.writerow([true_name, pred_name] + probs)
+        np.savez_compressed(
+            directory / "predictions.npz",
+            y_true=self.y_true.astype(np.int32),
+            y_pred=self.y_pred.astype(np.int32),
+            y_prob=self.y_prob.astype(np.float32),
+        )
 
     @classmethod
     def load(cls, path: str | Path) -> EvalResult:
@@ -122,33 +123,12 @@ class EvalResult:
         f1_scores = [per_class.get(n, {}).get("f1", 0.0) for n in names]
         support = [per_class.get(n, {}).get("support", 0) for n in names]
 
-        csv_path = directory / "predictions.csv"
         npz_path = directory / "predictions.npz"
-        if csv_path.exists():
-            name_to_idx = {ft.name: ft.value for ft in FaultType}
-            with csv_path.open(newline="") as f:
-                reader = csv.reader(f)
-                next(reader)
-                rows = list(reader)
-            if rows:
-                y_true = np.array(
-                    [name_to_idx[r[0]] if r[0] in name_to_idx else int(r[0]) for r in rows], dtype=np.int32
-                )
-                y_pred = np.array(
-                    [name_to_idx[r[1]] if r[1] in name_to_idx else int(r[1]) for r in rows], dtype=np.int32
-                )
-                y_prob = np.array(
-                    [[float(v) for v in r[2:]] for r in rows], dtype=np.float32
-                )
-            else:
-                y_true = np.empty(0, dtype=np.int32)
-                y_pred = np.empty(0, dtype=np.int32)
-                y_prob = np.empty((0, 0), dtype=np.float32)
-        elif npz_path.exists():
+        if npz_path.exists():
             preds = np.load(npz_path)
-            y_true = preds["y_true"]
-            y_pred = preds["y_pred"]
-            y_prob = preds["y_prob"]
+            y_true = preds["y_true"].astype(np.int32)
+            y_pred = preds["y_pred"].astype(np.int32)
+            y_prob = preds["y_prob"].astype(np.float32)
         else:
             y_true = np.empty(0, dtype=np.int32)
             y_pred = np.empty(0, dtype=np.int32)

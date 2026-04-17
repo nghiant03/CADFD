@@ -32,7 +32,8 @@ src/CADFD/
 │   ├── temporal/      # Temporal models: CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST, ModernTCN
 │   └── spatial/       # Spatial models: ST-GCN
 ├── training/          # Trainer, focal loss, oversampling, and callbacks
-├── evaluation/        # Metrics and evaluator
+├── evaluation/        # Metrics, ClassMetrics, evaluator
+├── utils.py           # Shared runtime helpers (git/env collectors, run id, sha256)
 ├── seed.py            # seed_everything() utility for reproducibility
 
 firmware/              # ESP32-S3 Rust firmware (esp-idf-hal, PlatformIO-free)
@@ -53,6 +54,33 @@ The `schema/` module contains Pydantic configuration models used by injection, t
 - `TrainConfig` - Training configuration (model, epochs, batch_size, learning_rate, use_focal_loss, focal_gamma, focal_alpha, oversample, oversample_ratio, features, seed, model_kwargs). Supports `from_yaml(path)` for YAML config files.
 - `EvaluateConfig` - Evaluation configuration (batch_size)
 - `OptimizeConfig` - Optimization configuration (model, n_trials, seed, storage)
+- `RunManifest` / `EnvInfo` / `GitInfo` / `DatasetInfo` / `Timing` (`schema/manifest.py`) - Pure pydantic models for the per-run reproducibility manifest written as `manifest.json`. Runtime collectors live in `CADFD.utils`; `DatasetInfo` is produced by `InjectedDataset.describe(path)`.
+
+## Utilities (`utils.py`)
+
+Single-file module with shared runtime helpers, used mainly by the train/evaluate CLIs:
+
+- `collect_git_info(cwd=None)` - commit SHA, branch, dirty flag (via `dulwich`, no `git` binary required)
+- `collect_env_info(device)` - python / torch / cuda / host / device name / cadfd version
+- `generate_run_id(model, seed, git)` - `<utc_ts>_<model>_seed<seed>_<shortsha>` (non-pure: samples wall clock)
+- `utc_now_iso()` - ISO-8601 UTC timestamp
+- `sha256_file(path)` - streaming SHA-256 of a file (used by `InjectedDataset.describe`)
+
+## Run Artifacts
+
+Every `cadfd train run` invocation creates a dedicated run directory; runs are never overwritten.
+
+```
+runs/<model>/<utc_ts>_<model>_seed<seed>_<shortsha>/
+├── weight.pt              # best-val-loss checkpoint
+├── config.json            # {model_name, model_config, train_config}
+├── history.jsonl          # one JSON TrainMetrics per epoch (HistoryCallback)
+├── manifest.json          # RunManifest: git, env, dataset hash, timing, configs
+├── eval_metrics.json      # loss, accuracy, macro_f1, per_class, class_names, confusion_matrix, train_config, injection_config
+└── predictions.npz        # y_true, y_pred (int32), y_prob (float32)
+```
+
+`cadfd evaluate run` writes the same artifacts (plus a `kind="evaluate"` `manifest.json`) into a new run subdirectory when `--output` is provided; otherwise it writes in-place alongside the loaded model.
 
 ## Configuration Design Pattern
 
@@ -124,7 +152,7 @@ net = create_model(config.model, input_size=prepared.input_size,
 - `FocalLoss` (`loss.py`) - Focal loss for imbalanced multi-class classification. gamma=0 recovers CE.
 - `oversample_minority` (`oversampling.py`) - Window-level oversampling: duplicates windows containing any non-NORMAL label until minority count reaches `ratio * majority_count`.
 - `Trainer` (`trainer.py`) - Full training loop with Adam optimizer, optional focal loss, optional oversampling, and callback hooks. Returns `TrainResult` with per-epoch history. Expects val data passed explicitly (produced by `dataset.prepare()`).
-- `TrainingCallback` (`callbacks.py`) - Abstract base; implementations: `LoggingCallback`, `EarlyStoppingCallback`, `CheckpointCallback`.
+- `TrainingCallback` (`callbacks.py`) - Abstract base; implementations: `LoggingCallback`, `EarlyStoppingCallback`, `CheckpointCallback`, `HistoryCallback` (per-epoch JSONL dump of `TrainMetrics`).
 
 ## Evaluation Module (`evaluation/`)
 
@@ -184,7 +212,7 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommende
 1. **Fault Injection**: `uv run cadfd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
 2. **Graph Preparation** (optional): `uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
 3. **Training**: `uv run cadfd train run lstm data/injected/intel_lab` or with config: `uv run cadfd train run lstm data/injected/intel_lab --config config/lstm.yaml`
-4. **Evaluation**: `uv run cadfd evaluate run --model models/lstm --data data/injected/intel_lab`
+4. **Evaluation**: `uv run cadfd evaluate run --model runs/lstm/<run_id> --data data/injected/intel_lab`
 
 ## CLI Structure
 

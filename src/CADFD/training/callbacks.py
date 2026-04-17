@@ -7,29 +7,14 @@ checkpointing, and other side effects.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from CADFD.evaluation.metrics import ClassMetrics
 from CADFD.logging import logger
 from CADFD.models.base import BaseModel
-
-
-@dataclass
-class ClassMetrics:
-    """Per-class precision, recall, and F1 score.
-
-    Attributes:
-        precision: Per-class precision array.
-        recall: Per-class recall array.
-        f1: Per-class F1 score array.
-        support: Per-class sample count array.
-    """
-
-    precision: list[float]
-    recall: list[float]
-    f1: list[float]
-    support: list[int]
 
 
 @dataclass
@@ -154,4 +139,36 @@ class CheckpointCallback(TrainingCallback):
             self._best_loss = val_loss
             model.save(self.save_path, config_dict=self.config_dict)
             logger.info("Saved checkpoint to {} (val_loss={:.4f})", self.save_path, val_loss)
+        return True
+
+
+@dataclass
+class HistoryCallback(TrainingCallback):
+    """Persists per-epoch ``TrainMetrics`` as JSONL.
+
+    Each epoch appends one line to ``history.jsonl`` so training curves,
+    early-stopping points, and per-class metrics can be recovered after
+    the run completes.
+
+    Attributes:
+        save_path: Directory where ``history.jsonl`` is written.
+    """
+
+    save_path: str | Path = "."
+    _file_path: Path = field(init=False, repr=False)
+    _initialized: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._file_path = Path(self.save_path) / "history.jsonl"
+
+    def on_epoch_end(self, metrics: TrainMetrics, model: BaseModel) -> bool:
+        if not self._initialized:
+            self._file_path.parent.mkdir(parents=True, exist_ok=True)
+            # Truncate any previous run's history in this directory.
+            self._file_path.write_text("")
+            self._initialized = True
+
+        payload = asdict(metrics)
+        with self._file_path.open("a") as fh:
+            fh.write(json.dumps(payload) + "\n")
         return True

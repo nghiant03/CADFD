@@ -21,9 +21,8 @@ from CADFD.logging import logger
 from CADFD.models.base import BaseModel
 from CADFD.schema import TrainConfig
 from CADFD.seed import seed_everything
-from CADFD.evaluation.metrics import compute_class_metrics, macro_f1
+from CADFD.evaluation.metrics import ClassMetrics, compute_class_metrics, macro_f1
 from CADFD.training.callbacks import (
-    ClassMetrics,
     LoggingCallback,
     TrainMetrics,
     TrainingCallback,
@@ -38,7 +37,7 @@ _DEPRECATED_VAL_RATIO_MSG = (
 )
 
 
-def _build_loss(
+def build_loss(
     config: TrainConfig,
     device: torch.device,
 ) -> nn.Module:
@@ -101,10 +100,6 @@ def _prepare_data(
 
 
 
-
-
-_compute_class_metrics = compute_class_metrics
-_macro_f1 = macro_f1
 
 
 @dataclass
@@ -203,7 +198,7 @@ class Trainer:
             torch.zeros(1, X_train.shape[1], X_train.shape[2], device=self.device)
         ).size(-1)
         logger.info("Using device: {}", self.device)
-        criterion = _build_loss(self.config, self.device)
+        criterion = build_loss(self.config, self.device)
         optimizer = torch.optim.Adam(model.parameters(), lr=self.config.learning_rate)
         logger.debug("Optimizer: Adam(lr={})", self.config.learning_rate)
 
@@ -213,10 +208,10 @@ class Trainer:
             train_loss, train_acc, train_cm = self._train_epoch(
                 model, train_loader, criterion, optimizer
             )
-            train_class_metrics = _compute_class_metrics(
+            train_class_metrics = compute_class_metrics(
                 train_cm[0], train_cm[1], num_classes
             )
-            train_macro_f1 = _macro_f1(train_class_metrics)
+            train_macro_f1 = macro_f1(train_class_metrics)
 
             val_loss: float | None = None
             val_acc: float | None = None
@@ -227,10 +222,10 @@ class Trainer:
                 val_loss, val_acc, val_cm = self._eval_epoch(
                     model, val_loader, criterion
                 )
-                val_class_metrics = _compute_class_metrics(
+                val_class_metrics = compute_class_metrics(
                     val_cm[0], val_cm[1], num_classes
                 )
-                val_macro_f1 = _macro_f1(val_class_metrics)
+                val_macro_f1 = macro_f1(val_class_metrics)
 
             metrics = TrainMetrics(
                 epoch=epoch,

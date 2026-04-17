@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -11,8 +13,18 @@ from CADFD.datasets import load_dataset
 from CADFD.evaluation import Evaluator
 from CADFD.logging import logger
 from CADFD.models import create_model, get_model_class
-from CADFD.schema import EvaluateConfig
+from CADFD.schema import (
+    EvaluateConfig,
+    RunManifest,
+    Timing,
+)
 from CADFD.schema.types import FaultType
+from CADFD.utils import (
+    collect_env_info,
+    collect_git_info,
+    generate_run_id,
+    utc_now_iso,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -88,16 +100,54 @@ def evaluate_run(
 
     evaluator = Evaluator(config=config)
     logger.info("Evaluating with batch_size={}", config.batch_size)
+
+    started_at = utc_now_iso()
+    t0 = time.perf_counter()
     result = evaluator.evaluate(net, prepared.X_test, prepared.y_test)
+    duration = time.perf_counter() - t0
+    ended_at = utc_now_iso()
+
     evaluator.log_results(result)
 
-    save_dir = output if output is not None else model
+    if output is not None:
+        git = collect_git_info()
+        run_id = generate_run_id(model_name, int(train_cfg.get("seed", 0)) if isinstance(train_cfg, dict) else 0, git)
+        save_dir = output / run_id
+    else:
+        save_dir = model
+    save_dir.mkdir(parents=True, exist_ok=True)
+
     result.save(
         save_dir,
         train_config=train_cfg,  # type: ignore[arg-type]
         injection_config=dataset.config.to_dict(),
     )
     logger.info("Results saved to: {}", save_dir)
+
+    if output is not None:
+        env = collect_env_info(evaluator.device)
+        dataset_info = dataset.describe(data)
+        seed = int(train_cfg.get("seed", 0)) if isinstance(train_cfg, dict) else 0
+        manifest = RunManifest(
+            run_id=save_dir.name,
+            kind="evaluate",
+            seed=seed,
+            model=model_name,
+            num_parameters=net.count_parameters(),
+            git=collect_git_info(),
+            env=env,
+            dataset=dataset_info,
+            timing=Timing(
+                started_at=started_at,
+                ended_at=ended_at,
+                duration_seconds=duration,
+            ),
+            train_config=train_cfg if isinstance(train_cfg, dict) else None,
+            eval_config=config.to_dict(),
+            injection_config=dataset.config.to_dict(),
+        )
+        (save_dir / "manifest.json").write_text(json.dumps(manifest.to_dict(), indent=2))
+        logger.info("Manifest written to: {}", save_dir / "manifest.json")
 
 
 @app.command("list")

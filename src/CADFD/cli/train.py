@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -11,10 +13,27 @@ from CADFD.datasets import load_dataset
 from CADFD.evaluation import Evaluator
 from CADFD.logging import logger
 from CADFD.models import create_model, get_model_class
-from CADFD.schema import EvaluateConfig, TrainConfig
+from CADFD.schema import (
+    EvaluateConfig,
+    RunManifest,
+    Timing,
+    TrainConfig,
+)
 from CADFD.schema.types import FaultType
-from CADFD.training import CheckpointCallback, EarlyStoppingCallback, LoggingCallback, Trainer
-from CADFD.training.trainer import _build_loss
+from CADFD.training import (
+    CheckpointCallback,
+    EarlyStoppingCallback,
+    HistoryCallback,
+    LoggingCallback,
+    Trainer,
+    build_loss,
+)
+from CADFD.utils import (
+    collect_env_info,
+    collect_git_info,
+    generate_run_id,
+    utc_now_iso,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -80,7 +99,11 @@ def train_run(
     ] = None,
     output: Annotated[
         Optional[Path],
-        typer.Option("--output", "-o", help="Output directory for trained model"),
+        typer.Option(
+            "--output",
+            "-o",
+            help="Parent directory for runs (default: runs/<model>). A new run subdirectory is created per invocation.",
+        ),
     ] = None,
     seed: Annotated[
         Optional[int],
@@ -168,18 +191,26 @@ def train_run(
         "Model: {} ({:,} parameters)", net.name, net.count_parameters()
     )
 
-    output_path = output if output is not None else Path(f"models/{config.model}")
-    logger.debug("Output path: {}", output_path)
+    output_root = output if output is not None else Path(f"runs/{config.model}")
+    git = collect_git_info()
+    run_id = generate_run_id(config.model, config.seed, git)
+    run_dir = output_root / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Run dir: {}", run_dir)
 
     callbacks = [
         LoggingCallback(),
-        CheckpointCallback(save_path=output_path, config_dict=config.to_dict()),
+        CheckpointCallback(save_path=run_dir, config_dict=config.to_dict()),
+        HistoryCallback(save_path=run_dir),
     ]
 
     if early_stopping:
         callbacks.append(EarlyStoppingCallback(patience=10))
 
     trainer = Trainer(config=config, callbacks=callbacks)
+
+    env = collect_env_info(trainer.device)
+    dataset_info = dataset.describe(data)
 
     logger.info(
         "Training for {} epochs | batch_size={} | lr={} | focal_loss={} | oversample={}",
@@ -190,6 +221,8 @@ def train_run(
         config.oversample,
     )
 
+    started_at = utc_now_iso()
+    t0 = time.perf_counter()
     result = trainer.fit(
         model=net,
         X_train=prepared.X_train,
@@ -197,13 +230,15 @@ def train_run(
         X_val=prepared.X_val if prepared.has_val else None,
         y_val=prepared.y_val if prepared.has_val else None,
     )
+    duration = time.perf_counter() - t0
+    ended_at = utc_now_iso()
 
     logger.info(
         "Training complete at epoch {} | best_val_loss={:.4f}",
         result.stopped_epoch,
         result.best_val_loss if result.best_val_loss is not None else float("nan"),
     )
-    logger.info("Model saved to: {}", output_path)
+    logger.info("Model saved to: {}", run_dir)
 
     if prepared.has_test:
         logger.info("--- Final Test Evaluation ---")
@@ -211,16 +246,37 @@ def train_run(
             config=EvaluateConfig(batch_size=config.batch_size),
             device=str(trainer.device),
         )
-        criterion = _build_loss(config, trainer.device)
+        criterion = build_loss(config, trainer.device)
         eval_result = evaluator.evaluate(net, prepared.X_test, prepared.y_test, criterion=criterion)
         evaluator.log_results(eval_result)
 
         eval_result.save(
-            output_path,
+            run_dir,
             train_config=config.to_dict(),
             injection_config=dataset.config.to_dict(),
         )
-        logger.info("Results saved to: {}", output_path)
+        logger.info("Results saved to: {}", run_dir)
+
+    manifest = RunManifest(
+        run_id=run_id,
+        kind="train",
+        seed=config.seed,
+        model=config.model,
+        num_parameters=net.count_parameters(),
+        git=git,
+        env=env,
+        dataset=dataset_info,
+        timing=Timing(
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_seconds=duration,
+            epochs_run=result.stopped_epoch,
+        ),
+        train_config=config.to_dict(),
+        injection_config=dataset.config.to_dict(),
+    )
+    (run_dir / "manifest.json").write_text(json.dumps(manifest.to_dict(), indent=2))
+    logger.info("Manifest written to: {}", run_dir / "manifest.json")
 
 
 @app.command("list")

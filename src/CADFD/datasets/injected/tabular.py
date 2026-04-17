@@ -24,7 +24,9 @@ from CADFD.datasets.injected.windowed import (
     validate_features,
 )
 from CADFD.schema import InjectionConfig
+from CADFD.schema.manifest import DatasetInfo
 from CADFD.schema.types import FaultType, WindowConfig
+from CADFD.utils import sha256_file
 
 
 @dataclass
@@ -103,6 +105,29 @@ class InjectedDataset:
     def num_features(self) -> int:
         """Return the number of features."""
         return len(self.feature_names)
+
+    def describe(self, path: str | Path) -> DatasetInfo:
+        """Return a :class:`DatasetInfo` snapshot of this dataset on disk.
+
+        Hashes ``injected_data.csv`` and ``injected_meta.json`` under
+        ``path`` (if present) and bundles feature/group counts that the
+        dataset already knows.
+
+        Args:
+            path: Directory the dataset was loaded from / saved to.
+        """
+        directory = Path(path)
+        data_file = directory / "injected_data.csv"
+        meta_file = directory / "injected_meta.json"
+        return DatasetInfo(
+            path=str(directory.resolve()),
+            data_sha256=sha256_file(data_file) if data_file.exists() else None,
+            meta_sha256=sha256_file(meta_file) if meta_file.exists() else None,
+            num_features=self.num_features,
+            feature_names=list(self.feature_names),
+            num_groups=self.num_groups,
+            total_timesteps=self.total_timesteps,
+        )
 
     def print_summary(self) -> None:
         """Print dataset summary statistics using rich formatting."""
