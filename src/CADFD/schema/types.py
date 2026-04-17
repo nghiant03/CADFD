@@ -112,13 +112,13 @@ class MarkovConfig(BaseModel):
         return [
             FaultConfig(
                 fault_type=FaultType.SPIKE,
-                transition_prob=0.02,
+                transition_prob=0.025,
                 average_duration=2,
                 params={"magnitude_range": (2.5, 5.0)},
             ),
             FaultConfig(
                 fault_type=FaultType.DRIFT,
-                transition_prob=0.005,
+                transition_prob=0.0025,
                 average_duration=40,
                 params={"drift_rate": 0.10},
             ),
