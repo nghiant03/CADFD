@@ -78,14 +78,14 @@ class InformerClassifier(BaseModel):
         self.sampling_factor = sampling_factor
 
         hf_config = InformerConfig(
-            d_model=d_model,
-            encoder_attention_heads=n_heads,
-            encoder_ffn_dim=d_ff,
-            dropout=dropout,
-            activation_dropout=dropout,
-            attention_dropout=dropout,
-            attention_type="prob",
-            sampling_factor=sampling_factor,
+            d_model=d_model,  # pyright: ignore[reportCallIssue]
+            encoder_attention_heads=n_heads,  # pyright: ignore[reportCallIssue]
+            encoder_ffn_dim=d_ff,  # pyright: ignore[reportCallIssue]
+            dropout=dropout,  # pyright: ignore[reportCallIssue]
+            activation_dropout=dropout,  # pyright: ignore[reportCallIssue]
+            attention_dropout=dropout,  # pyright: ignore[reportCallIssue]
+            attention_type="prob",  # pyright: ignore[reportCallIssue]
+            sampling_factor=sampling_factor,  # pyright: ignore[reportCallIssue]
         )
 
         self.input_proj = nn.Linear(input_size, d_model)

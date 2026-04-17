@@ -70,13 +70,13 @@ class AutoformerClassifier(BaseModel):
         self.moving_average = moving_average
 
         hf_config = AutoformerConfig(
-            d_model=d_model,
-            encoder_attention_heads=n_heads,
-            encoder_ffn_dim=d_ff,
-            dropout=dropout,
-            activation_dropout=dropout,
-            attention_dropout=dropout,
-            moving_average=moving_average,
+            d_model=d_model,  # pyright: ignore[reportCallIssue]
+            encoder_attention_heads=n_heads,  # pyright: ignore[reportCallIssue]
+            encoder_ffn_dim=d_ff,  # pyright: ignore[reportCallIssue]
+            dropout=dropout,  # pyright: ignore[reportCallIssue]
+            activation_dropout=dropout,  # pyright: ignore[reportCallIssue]
+            attention_dropout=dropout,  # pyright: ignore[reportCallIssue]
+            moving_average=moving_average,  # pyright: ignore[reportCallIssue]
         )
 
         self.input_proj = nn.Linear(input_size, d_model)

@@ -83,18 +83,18 @@ class PatchTSTClassifier(BaseModel):
         self.dropout_prob = dropout
 
         hf_config = PatchTSTConfig(
-            num_input_channels=input_size,
-            context_length=max_len,
-            patch_length=patch_length,
-            patch_stride=patch_stride,
-            d_model=d_model,
-            num_hidden_layers=num_layers,
-            num_attention_heads=n_heads,
-            ffn_dim=d_ff,
-            attention_dropout=dropout,
-            ff_dropout=dropout,
-            positional_dropout=dropout,
-            norm_type="batchnorm",
+            num_input_channels=input_size,  # pyright: ignore[reportCallIssue]
+            context_length=max_len,  # pyright: ignore[reportCallIssue]
+            patch_length=patch_length,  # pyright: ignore[reportCallIssue]
+            patch_stride=patch_stride,  # pyright: ignore[reportCallIssue]
+            d_model=d_model,  # pyright: ignore[reportCallIssue]
+            num_hidden_layers=num_layers,  # pyright: ignore[reportCallIssue]
+            num_attention_heads=n_heads,  # pyright: ignore[reportCallIssue]
+            ffn_dim=d_ff,  # pyright: ignore[reportCallIssue]
+            attention_dropout=dropout,  # pyright: ignore[reportCallIssue]
+            ff_dropout=dropout,  # pyright: ignore[reportCallIssue]
+            positional_dropout=dropout,  # pyright: ignore[reportCallIssue]
+            norm_type="batchnorm",  # pyright: ignore[reportCallIssue]
         )
 
         self.encoder = PatchTSTModel(hf_config)
