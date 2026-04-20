@@ -17,6 +17,7 @@ dependencies = [
     "typer>=0.15.0",
     "pyyaml>=6.0",
     "dulwich>=1.1.0",
+    "optuna>=4.0.0",
 ]
 
 [dependency-groups]

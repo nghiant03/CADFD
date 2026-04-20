@@ -226,29 +226,74 @@ class EvaluateConfig(BaseModel):
 
 
 class OptimizeConfig(BaseModel):
-    """Configuration for hyperparameter optimization.
+    """Configuration for hyperparameter optimization with Optuna.
 
     Attributes:
         model: Model architecture to optimize.
         n_trials: Number of Optuna trials.
-        seed: Random seed for reproducibility.
-        storage: Optuna storage URL.
+        timeout: Optimization timeout in seconds (None = unlimited).
+        seed: Random seed for sampler reproducibility.
+        storage: Optuna storage URL (e.g. ``sqlite:///optuna.db``).
+        study_name: Optuna study name. Defaults to ``cadfd-<model>``.
+        direction: ``minimize`` or ``maximize``.
+        metric: Validation metric to optimize. One of ``val_loss``,
+            ``val_macro_f1``, ``val_acc``.
+        epochs: Number of training epochs per trial.
+        sampler: Optuna sampler to use. One of ``tpe``, ``random``.
+        pruner: Optuna pruner. One of ``median``, ``none``.
+        startup_trials: Number of random trials before TPE/MedianPruner kicks in.
+        load_if_exists: Resume an existing study with the same name.
+        features: Subset of feature names to train on. None = all features.
     """
 
     model_config = ConfigDict(frozen=True)
 
     model: str = "lstm"
-    n_trials: int = Field(default=100, ge=1)
+    n_trials: int = Field(default=20, ge=1)
+    timeout: int | None = None
     seed: int = 42
     storage: str = "sqlite:///optuna.db"
+    study_name: str | None = None
+    direction: str = Field(default="minimize", pattern=r"^(minimize|maximize)$")
+    metric: str = Field(
+        default="val_loss",
+        pattern=r"^(val_loss|val_macro_f1|val_acc)$",
+    )
+    epochs: int = Field(default=20, ge=1)
+    sampler: str = Field(default="tpe", pattern=r"^(tpe|random)$")
+    pruner: str = Field(default="median", pattern=r"^(median|none)$")
+    startup_trials: int = Field(default=5, ge=0)
+    load_if_exists: bool = True
+    features: list[str] | None = None
+
+    def resolved_study_name(self) -> str:
+        """Return the study name, defaulting to ``cadfd-<model>``."""
+        return self.study_name if self.study_name is not None else f"cadfd-{self.model}"
+
+    def resolved_direction(self) -> str:
+        """Return the direction inferred from the metric if not overridden."""
+        # val_loss is minimized; f1/acc are maximized.
+        if self.metric == "val_loss":
+            return "minimize"
+        return "maximize"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "model": self.model,
             "n_trials": self.n_trials,
+            "timeout": self.timeout,
             "seed": self.seed,
             "storage": self.storage,
+            "study_name": self.study_name,
+            "direction": self.direction,
+            "metric": self.metric,
+            "epochs": self.epochs,
+            "sampler": self.sampler,
+            "pruner": self.pruner,
+            "startup_trials": self.startup_trials,
+            "load_if_exists": self.load_if_exists,
+            "features": self.features,
         }
 
     @classmethod
@@ -258,6 +303,16 @@ class OptimizeConfig(BaseModel):
         return cls(
             model=data.get("model", defaults.model),
             n_trials=data.get("n_trials", defaults.n_trials),
+            timeout=data.get("timeout", defaults.timeout),
             seed=data.get("seed", defaults.seed),
             storage=data.get("storage", defaults.storage),
+            study_name=data.get("study_name", defaults.study_name),
+            direction=data.get("direction", defaults.direction),
+            metric=data.get("metric", defaults.metric),
+            epochs=data.get("epochs", defaults.epochs),
+            sampler=data.get("sampler", defaults.sampler),
+            pruner=data.get("pruner", defaults.pruner),
+            startup_trials=data.get("startup_trials", defaults.startup_trials),
+            load_if_exists=data.get("load_if_exists", defaults.load_if_exists),
+            features=data.get("features", defaults.features),
         )

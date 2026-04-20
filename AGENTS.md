@@ -33,6 +33,7 @@ src/CADFD/
 │   └── spatial/       # Spatial models: ST-GCN
 ├── training/          # Trainer, focal loss, oversampling, and callbacks
 ├── evaluation/        # Metrics, ClassMetrics, evaluator
+├── optimization/      # Optuna search spaces and Optimizer for HPO
 ├── utils.py           # Shared runtime helpers (git/env collectors, run id, sha256)
 ├── seed.py            # seed_everything() utility for reproducibility
 
@@ -53,7 +54,7 @@ The `schema/` module contains Pydantic configuration models used by injection, t
 - `InjectionConfig` - Complete injection pipeline config (serializable as metadata)
 - `TrainConfig` - Training configuration (model, epochs, batch_size, learning_rate, use_focal_loss, focal_gamma, focal_alpha, oversample, oversample_ratio, features, seed, model_kwargs). Supports `from_yaml(path)` for YAML config files.
 - `EvaluateConfig` - Evaluation configuration (batch_size)
-- `OptimizeConfig` - Optimization configuration (model, n_trials, seed, storage)
+- `OptimizeConfig` - Optuna HPO configuration (model, n_trials, timeout, epochs, metric, sampler, pruner, startup_trials, study_name, storage, direction, load_if_exists, features, seed). Provides `resolved_study_name()` and `resolved_direction()` helpers.
 - `RunManifest` / `EnvInfo` / `GitInfo` / `DatasetInfo` / `Timing` (`schema/manifest.py`) - Pure pydantic models for the per-run reproducibility manifest written as `manifest.json`. Runtime collectors live in `CADFD.utils`; `DatasetInfo` is produced by `InjectedDataset.describe(path)`.
 
 ## Utilities (`utils.py`)
@@ -212,7 +213,43 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommende
 1. **Fault Injection**: `uv run cadfd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
 2. **Graph Preparation** (optional): `uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
 3. **Training**: `uv run cadfd train run lstm data/injected/intel_lab` or with config: `uv run cadfd train run lstm data/injected/intel_lab --config config/lstm.yaml`
-4. **Evaluation**: `uv run cadfd evaluate run --model runs/lstm/<run_id> --data data/injected/intel_lab`
+4. **Hyperparameter Search** (optional): `uv run cadfd optimize run --data data/injected/intel_lab --model lstm --n-trials 20 --epochs 10`
+5. **Evaluation**: `uv run cadfd evaluate run --model runs/lstm/<run_id> --data data/injected/intel_lab`
+
+## Optimization Module (`optimization/`)
+
+Optuna-driven hyperparameter search. Each trial samples both training-loop
+hyperparameters (learning rate, batch size, focal loss, oversampling) and
+model-architecture hyperparameters from a per-model search space, then trains
+a fresh model with `Trainer` for `OptimizeConfig.epochs` epochs and reports
+the configured validation metric back to Optuna.
+
+- `Optimizer` (`optimizer.py`) - Builds the study (sampler/pruner/storage),
+  loads the dataset once, and runs `n_trials`. Reports per-epoch metric to
+  Optuna and supports pruning via `_OptunaPruneCallback` (a `TrainingCallback`
+  that returns `False` when `trial.should_prune()` fires, stopping the
+  trainer early and raising `optuna.TrialPruned`).
+- `search_spaces.py` - Per-model `(trial) -> dict` functions registered for
+  `lstm`, `gru`, `cnn1d`, `transformer`, `autoformer`, `informer`, `patchtst`,
+  `modern_tcn`, `stgcn`. `suggest_train_hyperparams` covers shared training
+  knobs. Use `register_search_space(name, fn)` to add new model spaces.
+- Studies persist to `OptimizeConfig.storage` (default `sqlite:///optuna.db`)
+  under `OptimizeConfig.resolved_study_name()` (default `cadfd-<model>`),
+  so runs can be resumed (`load_if_exists=True`).
+
+### CLI
+
+```
+cadfd optimize run --data <dir> [--model lstm] [--n-trials N] [--epochs E]
+                   [--metric val_loss|val_macro_f1|val_acc] [--sampler tpe|random]
+                   [--pruner median|none] [--study-name NAME] [--storage URL]
+                   [--timeout SECONDS] [--seed S] [--output best_params.json]
+cadfd optimize show <study_name> [--storage URL] [--top K]
+```
+
+The `--metric` option auto-aligns the study direction (`val_loss` →
+minimize, others → maximize). The selected metric must be available in
+`TrainMetrics`; the dataset must have a non-empty validation split.
 
 ## CLI Structure
 
