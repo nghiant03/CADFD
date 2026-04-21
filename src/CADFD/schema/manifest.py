@@ -75,7 +75,7 @@ class RunManifest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     run_id: str
-    kind: str = "train"  # "train" | "evaluate"
+    kind: str = "train"
     seed: int
     model: str
     num_parameters: int | None = None
