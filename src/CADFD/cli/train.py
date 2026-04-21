@@ -242,6 +242,16 @@ def train_run(
 
     if prepared.has_test:
         logger.info("--- Final Test Evaluation ---")
+        weight_path = run_dir / "weight.pt"
+        if weight_path.exists():
+            import torch
+
+            net.load_state_dict(torch.load(weight_path, map_location=trainer.device))
+            logger.info("Reloaded best checkpoint from {} for test evaluation", weight_path)
+        else:
+            logger.warning(
+                "No checkpoint at {}; evaluating final-epoch weights", weight_path
+            )
         evaluator = Evaluator(
             config=EvaluateConfig(batch_size=config.batch_size),
             device=str(trainer.device),
