@@ -6,6 +6,7 @@ from CADFD.cli.evaluate import app as evaluate_app
 from CADFD.cli.inject import app as inject_app
 from CADFD.cli.optimize import app as optimize_app
 from CADFD.cli.prepare import app as prepare_app
+from CADFD.cli.report import app as report_app
 from CADFD.cli.train import app as train_app
 from CADFD.logging import configure_logging
 
@@ -31,6 +32,7 @@ app.add_typer(prepare_app, name="prepare", help="Prepare dataset variants (e.g. 
 app.add_typer(train_app, name="train", help="Train deep learning models")
 app.add_typer(evaluate_app, name="evaluate", help="Evaluate trained models")
 app.add_typer(optimize_app, name="optimize", help="Hyperparameter optimization with Optuna")
+app.add_typer(report_app, name="report", help="Aggregate run artifacts into comparison reports")
 
 
 def main() -> None:
