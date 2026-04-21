@@ -279,6 +279,24 @@ Run `cadfd --help` or `cadfd <subcommand> --help` for detailed options.
 3. Register in `injection/registry.py` with `register_fault()`.
 4. Add default config in `MarkovConfig._default_fault_configs()`.
 
+## Fault Injection Parameters
+
+Per-event randomization and per-mote scaling are first-class:
+
+- **Per-event random ranges**: `magnitude_range`, `drift_rate_range` are tuples
+  `(min, max)`; the injector samples a fresh value per fault event.
+- **Per-mote sigma scaling**: `magnitude_sigma_range` (SPIKE) and
+  `drift_rate_sigma_range` (DRIFT) are tuples interpreted as multipliers on
+  the mote's local std. They override the absolute ranges when present.
+  `FaultInjector` (`injection/injector.py`) computes per-(mote, feature) std
+  and median from the NORMAL portion and injects them as `_mote_std` /
+  `_mote_median` into `params` before calling each injector's `apply()`.
+- **STUCK jitter**: `jitter_sigma_factor` adds Gaussian noise of std
+  `factor * _mote_std` around the frozen value to simulate subtle freezes.
+- **Defaults** (`MarkovConfig._default_fault_configs`) are tuned for a
+  challenging benchmark: ~5-7% combined fault ratio, sigma-relative
+  magnitudes, randomized drift rates, jittered stuck.
+
 ## Adding New Datasets
 
 1. Implement a new dataset class in `src/CADFD/datasets/raw/` subclassing `BaseDataset`.
@@ -313,8 +331,20 @@ OUTPUT                 Output path for .npz file (required positional argument)
 -w, --window-size      Window size in timesteps (default from WindowConfig: 60)
 --train-stride         Stride for training windows (default from WindowConfig: 10)
 --evaluation-stride    Stride for held-out windows (default from WindowConfig: 60)
---spike-prob           Transition probability to spike (default from MarkovConfig: 0.02)
---drift-prob           Transition probability to drift (default from MarkovConfig: 0.01)
---stuck-prob           Transition probability to stuck (default from MarkovConfig: 0.015)
+--spike-prob           Transition probability to spike (default from MarkovConfig)
+--spike-duration       Average spike duration (default from MarkovConfig)
+--spike-magnitude-min  Minimum absolute spike offset (default from MarkovConfig)
+--spike-magnitude-max  Maximum absolute spike offset (default from MarkovConfig)
+--spike-sigma-min      Min sigma multiplier on per-mote std (overrides absolute)
+--spike-sigma-max      Max sigma multiplier on per-mote std
+--drift-prob           Transition probability to drift (default from MarkovConfig)
+--drift-duration       Average drift duration (default from MarkovConfig)
+--drift-rate-min       Minimum absolute drift rate per timestep
+--drift-rate-max       Maximum absolute drift rate per timestep
+--drift-sigma-min      Min sigma multiplier on per-mote std (overrides absolute)
+--drift-sigma-max      Max sigma multiplier on per-mote std
+--stuck-prob           Transition probability to stuck (default from MarkovConfig)
+--stuck-duration       Average stuck duration (default from MarkovConfig)
+--stuck-jitter-sigma-factor  Sigma fraction for stuck-with-noise jitter
 -c, --config           Path to JSON config file (CLI args override)
 ```

@@ -85,6 +85,26 @@ class InjectionConfig(BaseModel):
             seed=data.get("seed"),
         )
 
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "InjectionConfig":
+        """Load injection configuration from a YAML file.
+
+        The YAML file mirrors the structure produced by :meth:`to_dict`.
+        Tuple-like values (e.g. ``magnitude_range: [a, b]``) may be written
+        as YAML lists.
+        """
+        import yaml
+
+        resolved = Path(path)
+        if not resolved.exists():
+            msg = f"Injection config file not found: {resolved}"
+            raise FileNotFoundError(msg)
+
+        with resolved.open() as fh:
+            raw = yaml.safe_load(fh) or {}
+
+        return cls.from_dict(raw)
+
 
 class TrainConfig(BaseModel):
     """Configuration for model training.
@@ -272,7 +292,6 @@ class OptimizeConfig(BaseModel):
 
     def resolved_direction(self) -> str:
         """Return the direction inferred from the metric if not overridden."""
-        # val_loss is minimized; f1/acc are maximized.
         if self.metric == "val_loss":
             return "minimize"
         return "maximize"

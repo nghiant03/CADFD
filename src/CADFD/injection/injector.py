@@ -76,16 +76,30 @@ class FaultInjector:
 
                 data = df.loc[indices, target_feature].to_numpy(dtype=np.float64).copy()
 
+                normal_mask = states == 0
+                if np.any(normal_mask):
+                    baseline = data[normal_mask]
+                else:
+                    baseline = data
+                mote_std = float(np.std(baseline)) if baseline.size > 1 else 0.0
+                mote_median = float(np.median(baseline)) if baseline.size > 0 else 0.0
+
                 for fault_config in self.config.markov.fault_configs:
-                    logger.debug(f"Injecting {fault_config.fault_type} into group {group_id}, feature {target_feature}")
+                    logger.debug(
+                        f"Injecting {fault_config.fault_type} into group {group_id}, feature {target_feature}"
+                    )
                     fault_type = fault_config.fault_type
                     mask = states == fault_type.value
 
                     if not np.any(mask):
                         continue
 
+                    enriched_params = dict(fault_config.params)
+                    enriched_params.setdefault("_mote_std", mote_std)
+                    enriched_params.setdefault("_mote_median", mote_median)
+
                     injector = get_injector(fault_type)
-                    data = injector.apply(data, mask, fault_config.params, self.rng)
+                    data = injector.apply(data, mask, enriched_params, self.rng)
 
                 df.loc[indices, target_feature] = data
 
