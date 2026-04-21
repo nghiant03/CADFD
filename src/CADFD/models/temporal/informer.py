@@ -114,7 +114,7 @@ class InformerClassifier(BaseModel):
         hidden = self.pos_encoding(hidden)
         for layer in self.layers:
             layer_out = layer(hidden, attention_mask=None)
-            hidden = layer_out[0]
+            hidden = layer_out[0] if isinstance(layer_out, tuple) else layer_out
         hidden = self.layer_norm(hidden)
         hidden = self.dropout_layer(hidden)
         logits = self.fc(hidden)
