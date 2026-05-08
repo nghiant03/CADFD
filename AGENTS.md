@@ -40,8 +40,15 @@ src/CADFD/
 firmware/              # ESP32-S3 Rust firmware (esp-idf-hal, PlatformIO-free)
 config/                # YAML config files per model (lstm.yaml, gru.yaml, etc.)
 data/                  # Raw datasets and injected outputs
+docs/                  # Research plans and experiment documentation, including CESTA
 notebooks/             # Jupyter notebooks for analysis
 ```
+
+## Research Documentation
+
+- `docs/CESTA/PROPOSAL.md` - Research proposal for CESTA, a communication-efficient spatial-temporal method using receiver-side learned request and compression over existing graph edges.
+- `docs/CESTA/EXPERIMENT.md` - Experiment plan for CESTA, including baselines, ablations, Pareto selection between Gumbel-Softmax and RL, and TX+RX energy metrics.
+
 
 ## Schema Module (`schema/`)
 
