@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from CADFD.models.base import BaseModel
-from CADFD.models.spatial import STGCNClassifier
+from CADFD.models.spatial import CESTAClassifier, STGCNClassifier
 from CADFD.models.temporal import (
     AutoformerClassifier,
     CNN1DClassifier,
@@ -159,4 +159,5 @@ register_model("informer", InformerClassifier)
 register_model("patchtst", PatchTSTClassifier)
 register_model("modern_tcn", ModernTCNClassifier)
 register_model("stgcn", STGCNClassifier)
+register_model("cesta", CESTAClassifier)
 register_model("cnn1d", CNN1DClassifier)

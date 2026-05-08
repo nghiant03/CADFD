@@ -5,7 +5,7 @@ managing different model implementations.
 
 Subpackages:
     temporal/  - CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST, ModernTCN
-    spatial/   - ST-GCN
+    spatial/   - CESTA, ST-GCN
 """
 
 from CADFD.models.base import BaseModel
@@ -16,7 +16,7 @@ from CADFD.models.registry import (
     list_models,
     register_model,
 )
-from CADFD.models.spatial import STGCNClassifier
+from CADFD.models.spatial import CESTAClassifier, STGCNClassifier
 from CADFD.models.temporal import (
     AutoformerClassifier,
     CNN1DClassifier,
@@ -31,6 +31,7 @@ from CADFD.models.temporal import (
 __all__ = [
     "AutoformerClassifier",
     "BaseModel",
+    "CESTAClassifier",
     "CNN1DClassifier",
     "GRUClassifier",
     "InformerClassifier",
