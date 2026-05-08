@@ -98,7 +98,7 @@ class PatchTSTClassifier(BaseModel):
         )
 
         self.encoder = PatchTSTModel(hf_config)
-        self.layer_norm = nn.LayerNorm(d_model)
+        self.layer_norm = nn.LayerNorm(input_size * d_model)
         self.dropout_layer = nn.Dropout(dropout)
         self.fc = nn.Linear(input_size * d_model, num_classes)
 

@@ -69,6 +69,10 @@ def optimize_run(
         Optional[Path],
         typer.Option("--output", "-o", help="Path to write best params as JSON"),
     ] = None,
+    features: Annotated[
+        Optional[list[str]],
+        typer.Option("--features", "-f", help="Subset of features to use (default: all)"),
+    ] = None,
 ) -> None:
     """Run hyperparameter optimization with Optuna."""
     overrides: dict[str, Any] = {}
@@ -94,6 +98,8 @@ def optimize_run(
         overrides["storage"] = storage
     if seed is not None:
         overrides["seed"] = seed
+    if features:
+        overrides["features"] = features
 
     config = OptimizeConfig(**overrides)
     logger.debug("OptimizeConfig: {}", config.to_dict())
