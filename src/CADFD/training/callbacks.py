@@ -86,32 +86,55 @@ class LoggingCallback(TrainingCallback):
 
 @dataclass
 class EarlyStoppingCallback(TrainingCallback):
-    """Stops training when validation loss stops improving.
+    """Stops training when a monitored metric stops improving.
 
     Attributes:
         patience: Number of epochs to wait for improvement.
         min_delta: Minimum change to qualify as an improvement.
+        monitor: Metric name from ``TrainMetrics`` to watch
+            (``val_loss``, ``val_macro_f1``, or ``val_acc``).
+            ``val_macro_f1`` and ``val_acc`` are maximized; ``val_loss`` is minimized.
     """
 
     patience: int = 10
     min_delta: float = 1e-4
-    _best_loss: float = field(default=float("inf"), init=False, repr=False)
+    monitor: str = "val_loss"
+    _best: float = field(default=float("inf"), init=False, repr=False)
     _counter: int = field(default=0, init=False, repr=False)
 
+    def __post_init__(self) -> None:
+        self._direction_maximize = self.monitor != "val_loss"
+        if self._direction_maximize:
+            self._best = float("-inf")
+
+    def _metric_value(self, metrics: TrainMetrics) -> float | None:
+        if self.monitor == "val_loss":
+            return metrics.val_loss
+        if self.monitor == "val_macro_f1":
+            return metrics.val_macro_f1
+        return metrics.val_acc
+
     def on_epoch_end(self, metrics: TrainMetrics, model: BaseModel) -> bool:
-        val_loss = metrics.val_loss
-        if val_loss is None:
+        value = self._metric_value(metrics)
+        if value is None:
             return True
 
-        if val_loss < self._best_loss - self.min_delta:
-            self._best_loss = val_loss
+        improved = (
+            value > self._best + self.min_delta
+            if self._direction_maximize
+            else value < self._best - self.min_delta
+        )
+        if improved:
+            self._best = value
             self._counter = 0
         else:
             self._counter += 1
             if self._counter >= self.patience:
                 logger.info(
-                    "Early stopping triggered after {} epochs without improvement",
+                    "Early stopping triggered after {} epochs without improvement ({}={:.4f})",
                     self.patience,
+                    self.monitor,
+                    self._best,
                 )
                 return False
         return True
@@ -119,26 +142,51 @@ class EarlyStoppingCallback(TrainingCallback):
 
 @dataclass
 class CheckpointCallback(TrainingCallback):
-    """Saves model checkpoint when validation loss improves.
+    """Saves model checkpoint when a monitored metric improves.
 
     Saves to a directory with weight.pt and config.json.
 
     Attributes:
         save_path: Directory path to save the best model checkpoint.
         config_dict: Optional config dictionary to include in checkpoint.
+        monitor: Metric name from ``TrainMetrics`` to watch
+            (``val_loss``, ``val_macro_f1``, or ``val_acc``).
+            ``val_macro_f1`` and ``val_acc`` are maximized; ``val_loss`` is minimized.
     """
 
     save_path: str | Path = "best_model"
     config_dict: dict[str, object] | None = None
-    _best_loss: float = field(default=float("inf"), init=False, repr=False)
+    monitor: str = "val_loss"
+    _best: float = field(default=float("inf"), init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._direction_maximize = self.monitor != "val_loss"
+        if self._direction_maximize:
+            self._best = float("-inf")
+
+    def _metric_value(self, metrics: TrainMetrics) -> float:
+        if self.monitor == "val_loss":
+            return metrics.val_loss if metrics.val_loss is not None else metrics.train_loss
+        if self.monitor == "val_macro_f1":
+            return (
+                metrics.val_macro_f1
+                if metrics.val_macro_f1 is not None
+                else metrics.train_macro_f1 if metrics.train_macro_f1 is not None else 0.0
+            )
+        return (
+            metrics.val_acc
+            if metrics.val_acc is not None
+            else metrics.train_acc if metrics.train_acc is not None else 0.0
+        )
 
     def on_epoch_end(self, metrics: TrainMetrics, model: BaseModel) -> bool:
-        val_loss = metrics.val_loss if metrics.val_loss is not None else metrics.train_loss
+        value = self._metric_value(metrics)
 
-        if val_loss < self._best_loss:
-            self._best_loss = val_loss
+        improved = value > self._best if self._direction_maximize else value < self._best
+        if improved:
+            self._best = value
             model.save(self.save_path, config_dict=self.config_dict)
-            logger.info("Saved checkpoint to {} (val_loss={:.4f})", self.save_path, val_loss)
+            logger.info("Saved checkpoint to {} ({}={:.4f})", self.save_path, self.monitor, value)
         return True
 
 

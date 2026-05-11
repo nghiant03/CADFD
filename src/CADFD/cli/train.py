@@ -200,12 +200,20 @@ def train_run(
 
     callbacks = [
         LoggingCallback(),
-        CheckpointCallback(save_path=run_dir, config_dict=config.to_dict()),
+        CheckpointCallback(
+            save_path=run_dir,
+            config_dict=config.to_dict(),
+            monitor=config.checkpoint_monitor,
+        ),
         HistoryCallback(save_path=run_dir),
     ]
 
     if early_stopping:
-        callbacks.append(EarlyStoppingCallback(patience=10))
+        callbacks.append(
+            EarlyStoppingCallback(
+                patience=10, monitor=config.early_stopping_monitor
+            )
+        )
 
     trainer = Trainer(config=config, callbacks=callbacks)
 

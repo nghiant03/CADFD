@@ -99,9 +99,6 @@ def _prepare_data(
     return X, y
 
 
-
-
-
 @dataclass
 class TrainResult:
     """Result container returned after training completes.
@@ -138,7 +135,9 @@ class Trainer:
             list(callbacks) if callbacks is not None else [LoggingCallback()]
         )
         self.device = torch.device(
-            device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+            device
+            if device is not None
+            else ("cuda" if torch.cuda.is_available() else "cpu")
         )
 
     def fit(
@@ -205,6 +204,8 @@ class Trainer:
         result = TrainResult()
 
         for epoch in range(1, self.config.epochs + 1):
+            self._maybe_anneal_gumbel_temperature(model, epoch)
+
             train_loss, train_acc, train_cm = self._train_epoch(
                 model, train_loader, criterion, optimizer
             )
@@ -245,7 +246,9 @@ class Trainer:
             ):
                 result.best_val_loss = val_loss
 
-            should_continue = all(cb.on_epoch_end(metrics, model) for cb in self.callbacks)
+            should_continue = all(
+                cb.on_epoch_end(metrics, model) for cb in self.callbacks
+            )
             if not should_continue:
                 result.stopped_epoch = epoch
                 logger.info("Training stopped early at epoch {}", epoch)
@@ -277,7 +280,9 @@ class Trainer:
                 last.val_loss,
                 last.val_acc if last.val_acc is not None else 0.0,
                 last.val_macro_f1 if last.val_macro_f1 is not None else 0.0,
-                result.best_val_loss if result.best_val_loss is not None else float("nan"),
+                result.best_val_loss
+                if result.best_val_loss is not None
+                else float("nan"),
             )
         if last.val_class_metrics is not None:
             self._log_class_metrics("Validation", last.val_class_metrics)
@@ -291,7 +296,14 @@ class Trainer:
 
         names = FaultType.names()
         logger.info("--- {} Per-Class Metrics ---", split_name)
-        logger.info("{:<10s}  {:>9s}  {:>9s}  {:>9s}  {:>9s}", "Class", "Precision", "Recall", "F1", "Support")
+        logger.info(
+            "{:<10s}  {:>9s}  {:>9s}  {:>9s}  {:>9s}",
+            "Class",
+            "Precision",
+            "Recall",
+            "F1",
+            "Support",
+        )
         for i, name in enumerate(names):
             if i < len(cm.precision):
                 logger.info(
@@ -302,6 +314,26 @@ class Trainer:
                     cm.f1[i],
                     cm.support[i],
                 )
+
+    def _maybe_anneal_gumbel_temperature(
+        self,
+        model: BaseModel,
+        epoch: int,
+    ) -> None:
+        config = self.config
+        if (
+            config.gumbel_tau_anneal_epochs < 1
+            or config.gumbel_tau_start == config.gumbel_tau_end
+        ):
+            return
+        setter = getattr(model, "set_gumbel_temperature", None)
+        if setter is None:
+            return
+        progress = min(float(epoch - 1) / config.gumbel_tau_anneal_epochs, 1.0)
+        tau = config.gumbel_tau_start + progress * (
+            config.gumbel_tau_end - config.gumbel_tau_start
+        )
+        setter(tau)
 
     def _make_loader(
         self,
@@ -349,6 +381,7 @@ class Trainer:
             logits = model(X_batch)
 
             loss = criterion(logits.reshape(-1, logits.size(-1)), y_batch.reshape(-1))
+            loss = self._add_auxiliary_loss(model, loss)
             loss.backward()
             optimizer.step()
 
@@ -363,6 +396,31 @@ class Trainer:
         avg_loss = total_loss / max(len(loader.dataset), 1)  # type: ignore[arg-type]
         accuracy = correct / max(total, 1)
         return avg_loss, accuracy, (all_preds, all_targets)
+
+    def _add_auxiliary_loss(
+        self,
+        model: BaseModel,
+        loss: torch.Tensor,
+    ) -> torch.Tensor:
+        weight = self.config.communication_penalty_weight
+        if weight > 0.0:
+            comm_loss = getattr(model, "communication_loss", None)
+            if comm_loss is not None and isinstance(comm_loss, torch.Tensor):
+                if self.config.communication_penalty_mode == "budget_hinge":
+                    excess = torch.relu(
+                        comm_loss - self.config.target_request_ratio
+                    )
+                    loss = loss + weight * (excess ** 2)
+                else:
+                    loss = loss + weight * comm_loss
+
+        entropy_weight = self.config.gate_entropy_weight
+        if entropy_weight > 0.0:
+            gate_entropy = getattr(model, "gate_entropy", None)
+            if gate_entropy is not None and isinstance(gate_entropy, torch.Tensor):
+                loss = loss - entropy_weight * gate_entropy
+
+        return loss
 
     @torch.no_grad()
     def _eval_epoch(
@@ -389,6 +447,7 @@ class Trainer:
 
             logits = model(X_batch)
             loss = criterion(logits.reshape(-1, logits.size(-1)), y_batch.reshape(-1))
+            loss = self._add_auxiliary_loss(model, loss)
 
             total_loss += loss.item() * X_batch.size(0)
             preds = logits.argmax(dim=-1)

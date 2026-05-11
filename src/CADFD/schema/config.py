@@ -119,6 +119,20 @@ class TrainConfig(BaseModel):
         focal_alpha: Per-class balancing weights for focal loss. None means uniform.
         oversample: Whether to oversample minority (non-NORMAL) classes.
         oversample_ratio: Target ratio of minority to majority samples (1.0 = balanced).
+        communication_penalty_weight: Weight for communication auxiliary loss (0 = disabled).
+        communication_penalty_mode: ``"linear"`` for L1 penalty or ``"budget_hinge"`` for
+            ``relu(ratio - target)^2``.
+        target_request_ratio: Target active request ratio for budget_hinge mode.
+        gate_entropy_weight: Weight for gate entropy regularization (0 = disabled).
+            Positive weight encourages higher gate entropy to prevent collapse to all-zero.
+        gumbel_tau_start: Initial Gumbel-Softmax temperature.
+        gumbel_tau_end: Final Gumbel-Softmax temperature after annealing.
+        gumbel_tau_anneal_epochs: Number of epochs over which to linearly anneal
+            temperature from ``gumbel_tau_start`` to ``gumbel_tau_end``.
+        checkpoint_monitor: Metric to monitor for model checkpointing
+            (``val_loss``, ``val_macro_f1``, or ``val_acc``).
+        early_stopping_monitor: Metric to monitor for early stopping
+            (``val_loss``, ``val_macro_f1``, or ``val_acc``).
         features: Subset of feature names to train on. None means all features.
         val_ratio: Fraction of training data to use for validation (0.0 = no split).
         seed: Random seed for reproducibility.
@@ -135,6 +149,15 @@ class TrainConfig(BaseModel):
     focal_alpha: list[float] | None = None
     oversample: bool = False
     oversample_ratio: float = Field(default=1.0, gt=0.0, le=1.0)
+    communication_penalty_weight: float = Field(default=0.0, ge=0.0)
+    communication_penalty_mode: str = Field(default="linear", pattern=r"^(linear|budget_hinge)$")
+    target_request_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
+    gate_entropy_weight: float = Field(default=0.0, ge=0.0)
+    gumbel_tau_start: float = Field(default=1.0, gt=0.0)
+    gumbel_tau_end: float = Field(default=1.0, gt=0.0)
+    gumbel_tau_anneal_epochs: int = Field(default=0, ge=0)
+    checkpoint_monitor: str = Field(default="val_loss", pattern=r"^(val_loss|val_macro_f1|val_acc)$")
+    early_stopping_monitor: str = Field(default="val_loss", pattern=r"^(val_loss|val_macro_f1|val_acc)$")
     features: list[str] | None = None
     val_ratio: float = Field(default=0.1, ge=0.0, lt=1.0)
     seed: int = 42
@@ -152,6 +175,15 @@ class TrainConfig(BaseModel):
             "focal_alpha": self.focal_alpha,
             "oversample": self.oversample,
             "oversample_ratio": self.oversample_ratio,
+            "communication_penalty_weight": self.communication_penalty_weight,
+            "communication_penalty_mode": self.communication_penalty_mode,
+            "target_request_ratio": self.target_request_ratio,
+            "gate_entropy_weight": self.gate_entropy_weight,
+            "gumbel_tau_start": self.gumbel_tau_start,
+            "gumbel_tau_end": self.gumbel_tau_end,
+            "gumbel_tau_anneal_epochs": self.gumbel_tau_anneal_epochs,
+            "checkpoint_monitor": self.checkpoint_monitor,
+            "early_stopping_monitor": self.early_stopping_monitor,
             "features": self.features,
             "val_ratio": self.val_ratio,
             "seed": self.seed,
@@ -212,6 +244,33 @@ class TrainConfig(BaseModel):
             focal_alpha=data.get("focal_alpha", defaults.focal_alpha),
             oversample=data.get("oversample", defaults.oversample),
             oversample_ratio=data.get("oversample_ratio", defaults.oversample_ratio),
+            communication_penalty_weight=data.get(
+                "communication_penalty_weight", defaults.communication_penalty_weight
+            ),
+            communication_penalty_mode=data.get(
+                "communication_penalty_mode", defaults.communication_penalty_mode
+            ),
+            target_request_ratio=data.get(
+                "target_request_ratio", defaults.target_request_ratio
+            ),
+            gate_entropy_weight=data.get(
+                "gate_entropy_weight", defaults.gate_entropy_weight
+            ),
+            gumbel_tau_start=data.get(
+                "gumbel_tau_start", defaults.gumbel_tau_start
+            ),
+            gumbel_tau_end=data.get(
+                "gumbel_tau_end", defaults.gumbel_tau_end
+            ),
+            gumbel_tau_anneal_epochs=data.get(
+                "gumbel_tau_anneal_epochs", defaults.gumbel_tau_anneal_epochs
+            ),
+            checkpoint_monitor=data.get(
+                "checkpoint_monitor", defaults.checkpoint_monitor
+            ),
+            early_stopping_monitor=data.get(
+                "early_stopping_monitor", defaults.early_stopping_monitor
+            ),
             features=data.get("features", defaults.features),
             val_ratio=data.get("val_ratio", defaults.val_ratio),
             seed=data.get("seed", defaults.seed),
