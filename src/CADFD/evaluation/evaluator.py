@@ -21,6 +21,7 @@ from CADFD.models.base import BaseModel
 from CADFD.schema import EvaluateConfig
 from CADFD.schema.types import FaultType
 
+from .communication import aggregate_communication_stats
 from .metrics import ClassMetrics, compute_class_metrics, confusion_matrix, macro_f1
 
 
@@ -42,9 +43,16 @@ class EvalResult:
     accuracy: float
     macro_f1: float
     class_metrics: ClassMetrics
-    y_true: NDArray[np.int32] = field(default_factory=lambda: np.empty(0, dtype=np.int32))
-    y_pred: NDArray[np.int32] = field(default_factory=lambda: np.empty(0, dtype=np.int32))
-    y_prob: NDArray[np.float32] = field(default_factory=lambda: np.empty((0, 0), dtype=np.float32))
+    y_true: NDArray[np.int32] = field(
+        default_factory=lambda: np.empty(0, dtype=np.int32)
+    )
+    y_pred: NDArray[np.int32] = field(
+        default_factory=lambda: np.empty(0, dtype=np.int32)
+    )
+    y_prob: NDArray[np.float32] = field(
+        default_factory=lambda: np.empty((0, 0), dtype=np.float32)
+    )
+    communication_metrics: dict[str, Any] | None = None
 
     def save(
         self,
@@ -103,6 +111,11 @@ class EvalResult:
             y_prob=self.y_prob.astype(np.float32),
         )
 
+        if self.communication_metrics is not None:
+            (directory / "communication_metrics.json").write_text(
+                json.dumps(self.communication_metrics, indent=2)
+            )
+
     @classmethod
     def load(cls, path: str | Path) -> EvalResult:
         """Load evaluation results from a directory.
@@ -134,6 +147,13 @@ class EvalResult:
             y_pred = np.empty(0, dtype=np.int32)
             y_prob = np.empty((0, 0), dtype=np.float32)
 
+        communication_path = directory / "communication_metrics.json"
+        communication_metrics = (
+            json.loads(communication_path.read_text())
+            if communication_path.exists()
+            else None
+        )
+
         return cls(
             loss=meta["loss"],
             accuracy=meta["accuracy"],
@@ -147,6 +167,7 @@ class EvalResult:
             y_true=y_true,
             y_pred=y_pred,
             y_prob=y_prob,
+            communication_metrics=communication_metrics,
         )
 
 
@@ -165,7 +186,9 @@ class Evaluator:
     ) -> None:
         self.config = config if config is not None else EvaluateConfig()
         self.device = torch.device(
-            device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+            device
+            if device is not None
+            else ("cuda" if torch.cuda.is_available() else "cpu")
         )
 
     @torch.no_grad()
@@ -205,6 +228,7 @@ class Evaluator:
         all_preds: list[torch.Tensor] = []
         all_targets: list[torch.Tensor] = []
         all_probs: list[torch.Tensor] = []
+        communication_stats: list[dict[str, float]] = []
 
         for X_batch, y_batch in loader:
             X_batch = X_batch.to(self.device)
@@ -212,6 +236,9 @@ class Evaluator:
 
             logits = model(X_batch)
             loss = criterion(logits.reshape(-1, logits.size(-1)), y_batch.reshape(-1))
+            stats = getattr(model, "last_communication_stats", None)
+            if isinstance(stats, dict):
+                communication_stats.append({k: float(v) for k, v in stats.items()})
 
             total_loss += loss.item() * X_batch.size(0)
             preds = logits.argmax(dim=-1)
@@ -231,6 +258,10 @@ class Evaluator:
         y_true = torch.cat(all_targets).numpy().astype(np.int32)
         y_pred = torch.cat(all_preds).numpy().astype(np.int32)
         y_prob = torch.cat(all_probs).numpy().astype(np.float32)
+        communication_metrics = aggregate_communication_stats(
+            {"test": communication_stats},
+            model,
+        )
 
         return EvalResult(
             loss=avg_loss,
@@ -240,6 +271,7 @@ class Evaluator:
             y_true=y_true,
             y_pred=y_pred,
             y_prob=y_prob,
+            communication_metrics=communication_metrics,
         )
 
     def log_results(self, result: EvalResult, split_name: str = "Test") -> None:
@@ -259,7 +291,14 @@ class Evaluator:
         names = FaultType.names()
         cm = result.class_metrics
         logger.info("--- {} Per-Class Metrics ---", split_name)
-        logger.info("{:<10s}  {:>9s}  {:>9s}  {:>9s}  {:>9s}", "Class", "Precision", "Recall", "F1", "Support")
+        logger.info(
+            "{:<10s}  {:>9s}  {:>9s}  {:>9s}  {:>9s}",
+            "Class",
+            "Precision",
+            "Recall",
+            "F1",
+            "Support",
+        )
         for i, name in enumerate(names):
             if i < len(cm.precision):
                 logger.info(

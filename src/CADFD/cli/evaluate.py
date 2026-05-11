@@ -47,7 +47,11 @@ def evaluate_run(
     ] = None,
     batch_size: Annotated[
         Optional[int],
-        typer.Option("--batch-size", "-b", help=f"Evaluation batch size (default: {_defaults.batch_size})"),
+        typer.Option(
+            "--batch-size",
+            "-b",
+            help=f"Evaluation batch size (default: {_defaults.batch_size})",
+        ),
     ] = None,
 ) -> None:
     """Evaluate a trained model on test data."""
@@ -86,16 +90,20 @@ def evaluate_run(
 
     input_size = prepared.input_size
     num_classes = FaultType.count()
+    model_kwargs = {}
+    if isinstance(train_cfg, dict):
+        saved_model_kwargs = train_cfg.get("model_kwargs", {})
+        if isinstance(saved_model_kwargs, dict):
+            model_kwargs = saved_model_kwargs
     net = create_model(
         model_name,
         input_size=input_size,
         num_classes=num_classes,
         metadata=prepared.metadata,
+        **model_kwargs,
     )
     assert isinstance(net, BaseModel)
-    net.load_state_dict(
-        torch.load(model / "weight.pt", weights_only=True)
-    )
+    net.load_state_dict(torch.load(model / "weight.pt", weights_only=True))
     logger.info("Model: {} ({:,} parameters)", net.name, net.count_parameters())
 
     evaluator = Evaluator(config=config)
@@ -111,7 +119,11 @@ def evaluate_run(
 
     if output is not None:
         git = collect_git_info()
-        run_id = generate_run_id(model_name, int(train_cfg.get("seed", 0)) if isinstance(train_cfg, dict) else 0, git)
+        run_id = generate_run_id(
+            model_name,
+            int(train_cfg.get("seed", 0)) if isinstance(train_cfg, dict) else 0,
+            git,
+        )
         save_dir = output / run_id
     else:
         save_dir = model
@@ -146,7 +158,9 @@ def evaluate_run(
             eval_config=config.to_dict(),
             injection_config=dataset.config.to_dict(),
         )
-        (save_dir / "manifest.json").write_text(json.dumps(manifest.to_dict(), indent=2))
+        (save_dir / "manifest.json").write_text(
+            json.dumps(manifest.to_dict(), indent=2)
+        )
         logger.info("Manifest written to: {}", save_dir / "manifest.json")
 
 
