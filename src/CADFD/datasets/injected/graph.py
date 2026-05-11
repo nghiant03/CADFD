@@ -249,23 +249,27 @@ class GraphDataset(InjectedDataset):
         group_col = self.group_column
         node_ids = self.node_ids
 
-        pivot_dfs: list[NDArray[np.float32]] = []
-        for nid in node_ids:
-            group_df = df[df[group_col] == nid].sort_values("timestamp").reset_index(drop=True)
-            pivot_dfs.append(group_df[selected_features].to_numpy(dtype=np.float32))
+        common_ts = sorted(df["timestamp"].unique())
 
-        min_len = min(len(p) for p in pivot_dfs)
-        for i in range(len(pivot_dfs)):
-            pivot_dfs[i] = pivot_dfs[i][:min_len]
+        ts_index = {ts: i for i, ts in enumerate(common_ts)}
+        n_ts = len(common_ts)
+        n_feat = len(selected_features)
+        P = len(node_ids)
 
-        combined = np.concatenate(pivot_dfs, axis=1)
+        combined = np.zeros((n_ts, P * n_feat), dtype=np.float32)
+        labels_all = np.zeros((n_ts, P), dtype=np.int32) - 1
 
-        label_arrays: list[NDArray[np.int32]] = []
-        for nid in node_ids:
-            gdf = df[df[group_col] == nid].sort_values("timestamp").reset_index(drop=True)
-            label_arrays.append(gdf["fault_state"].to_numpy(dtype=np.int32)[:min_len])
-
-        labels_all = np.stack(label_arrays, axis=1).astype(np.int32)
+        for p_idx, nid in enumerate(node_ids):
+            group_df = df[df[group_col] == nid].set_index("timestamp").sort_index()
+            feat_col_start = p_idx * n_feat
+            feat_col_end = (p_idx + 1) * n_feat
+            for ts in group_df.index:
+                if ts in ts_index:
+                    i = ts_index[ts]
+                    combined[i, feat_col_start:feat_col_end] = (
+                        group_df.loc[ts, selected_features].to_numpy(dtype=np.float32)
+                    )
+                    labels_all[i, p_idx] = int(group_df.loc[ts, "fault_state"])
 
         X_tr, y_tr, X_va, y_va, X_te, y_te = split_and_window(
             combined, labels_all, wc
