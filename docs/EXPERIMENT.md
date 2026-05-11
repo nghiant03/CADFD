@@ -25,6 +25,14 @@ Use temp-only input for comparability:
 features: ["temp"]
 ```
 
+Graph preparation should use a directed candidate edge list from `connectivity.txt` and a once-sampled bursty link-success mask. Runtime graph availability is dynamic:
+
+```text
+active_edge[t,e] = link_success[t,e] & node_observed[t,sender(e)] & node_observed[t,receiver(e)]
+```
+
+Missing node labels are stored as `-1` and excluded by masked loss/metrics. Complete-case timestamp filtering is not viable for the current Intel graph data because no timestamp contains all 55 nodes.
+
 The first decisive development dataset is:
 
 ```text
@@ -65,7 +73,7 @@ Preferred Q1-level target is +0.03 to +0.04 average macro-F1 over those best tem
 
 1. ST-GCN.
 2. HiFiNet, if the supplied paper confirms it targets sensor/graph fault diagnosis.
-3. Dense learned message passing: same encoder/aggregator as CESTA, all graph edges active, full embeddings transmitted.
+3. Dense learned message passing: same encoder/aggregator as CESTA, all currently available directed candidate edges active, full embeddings transmitted.
 4. Static top-k graph communication using strongest connectivity edges.
 5. Random communication at matched average communication budget.
 
@@ -113,7 +121,7 @@ Primary energy metrics should be based on energy consumption:
 
 ## Theoretical energy calculation
 
-For every active receiver-side request from node `i` to neighbor `j`, count both TX and RX energy.
+For every active receiver-side request from sender node `j` to receiver node `i`, count both TX and RX energy only when the directed candidate edge is available at that timestamp/window.
 
 ```text
 E_tx(k, d) = E_elec · k + E_amp · k · d^n
@@ -130,7 +138,7 @@ d0 = sqrt(E_fs / E_mp)
 For CESTA:
 
 ```text
-E_CESTA = Σ_windows Σ_receivers i Σ_neighbors j g_i,j · E_msg(k_i,j, d_i,j)
+E_CESTA = Σ_windows Σ_t Σ_edges j→i available[t,j→i] · g_i,j,t · E_msg(k_i,j, d_i,j)
 ```
 
 where `k_i,j` depends on hidden dimension, compression ratio, numeric precision, and protocol overhead if modeled.
@@ -138,7 +146,7 @@ where `k_i,j` depends on hidden dimension, compression ratio, numeric precision,
 For dense learned message passing:
 
 ```text
-E_dense = Σ_windows Σ_edges E_msg(k_full, d_edge)
+E_dense = Σ_windows Σ_t Σ_edges j→i available[t,j→i] · E_msg(k_full, d_j,i)
 ```
 
 Report reduction:
@@ -157,8 +165,9 @@ Run on `Intel_fault15` for a very small epoch budget.
 
 Checks:
 
+- graph batch carries `x`, `y`, `node_mask`, directed `edge_index`, and per-window `edge_mask`;
 - logits shape is `(batch, window_size, num_nodes, num_classes)`;
-- loss computes against per-node labels;
+- loss computes against per-node labels only where `node_mask` is true;
 - communication stats are non-empty;
 - requested edge ratio is not NaN;
 - model can overfit a tiny batch.
@@ -181,7 +190,7 @@ Required outputs:
 
 ### Stage 2: dense learned message passing
 
-Train the same encoder and aggregation module with all existing graph edges active and full embeddings transmitted.
+Train the same encoder and aggregation module with all currently available directed candidate edges active and full embeddings transmitted.
 
 Purpose:
 
@@ -210,7 +219,7 @@ Purpose:
 
 ### Stage 4: compression-only CESTA
 
-Keep all existing graph edges active but learn/select compression ratio.
+Keep all currently available directed candidate edges active but learn/select compression ratio.
 
 Compare:
 
@@ -287,7 +296,10 @@ Required ablations:
 12. per-window versus per-timestep decision if implementation cost permits;
 13. compression ratios `{0.25, 0.5, 1.0}` versus smaller/larger sets;
 14. different energy penalty weights;
-15. quantized versus non-quantized edge evaluation.
+15. quantized versus non-quantized edge evaluation;
+16. GAT single-head attention versus degree-normalized mean aggregation;
+17. attention over received set only versus softmax over padded full neighbor set;
+18. multi-head attention versus single-head if neighbor sets grow large (>4).
 
 ## Hyperparameter sweeps
 
@@ -342,7 +354,7 @@ Record for every run:
 
 - dataset path and fault ratio;
 - selected features;
-- graph threshold and node count;
+- graph threshold, directed edge count, node count, dynamic-link seed, and burst-simulation parameters;
 - random seed;
 - model config;
 - training controller type: Gumbel, RL, or rule-based;
@@ -360,7 +372,7 @@ GRU temporal encoder
 receiver-side local gate
 Gumbel request only
 full embedding when active
-single-head/normalized-sum aggregation
+GAT-inspired single-head attention aggregation
 communication stats logging
 ```
 

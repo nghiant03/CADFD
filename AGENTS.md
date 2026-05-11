@@ -30,7 +30,7 @@ src/CADFD/
 │   └── injected/      # Post-injection: InjectedDataset, GraphDataset, windowing, loading
 ├── models/            # Deep learning model definitions
 │   ├── temporal/      # Temporal models: CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST, ModernTCN
-│   └── spatial/       # Spatial models: ST-GCN
+│   └── spatial/       # Spatial models: ST-GCN, CESTA
 ├── training/          # Trainer, focal loss, oversampling, and callbacks
 ├── evaluation/        # Metrics, ClassMetrics, evaluator
 ├── optimization/      # Optuna search spaces and Optimizer for HPO
@@ -46,8 +46,8 @@ notebooks/             # Jupyter notebooks for analysis
 
 ## Research Documentation
 
-- `docs/CESTA/PROPOSAL.md` - Research proposal for CESTA, a communication-efficient spatial-temporal method using receiver-side learned request and compression over existing graph edges.
-- `docs/CESTA/EXPERIMENT.md` - Experiment plan for CESTA, including baselines, ablations, Pareto selection between Gumbel-Softmax and RL, and TX+RX energy metrics.
+- `docs/PROPOSAL.md` - Research proposal for CESTA, a communication-efficient spatial-temporal method using receiver-side learned request, GAT-inspired attention aggregation, and compression over existing graph edges.
+- `docs/EXPERIMENT.md` - Experiment plan for CESTA, including baselines, ablations, Pareto selection between Gumbel-Softmax and RL, GAT-inspired attention aggregation, and TX+RX energy metrics.
 
 
 ## Schema Module (`schema/`)
@@ -322,6 +322,10 @@ class STGCNClassifier(BaseModel):
 To add a new model that needs special metadata:
 1. Set `required_metadata` on the model class.
 2. Add extraction logic to `_extract_metadata_kwargs` in `models/registry.py`.
+
+## CESTA Model (`models/spatial/cesta.py`)
+
+`CESTAClassifier` is registered as `cesta` and requires graph metadata. It expects graph-aligned input `(batch, window_size, num_nodes * features_per_node)` and returns logits `(batch, window_size, num_nodes, num_classes)`. Supported `communication_mode` values are `"none"` for the temporal-only fixed backbone, `"dense"` for all non-self graph edges with full hidden-state messages, and `"gumbel_request"` for receiver-side straight-through Gumbel request gating with full hidden-state messages. Dense and Gumbel modes use GAT-inspired single-head attention aggregation: Q from local hidden, K/V from received neighbor hiddens, softmax over received set only, zero-vector when no neighbors requested. The latest forward communication counters are available via `last_communication_stats` with active ratio, requested/possible edge counts, transmitted-bit estimate, and compression-count fields; `auxiliary_loss` exposes communication ratio for generic trainer penalties. `TrainConfig.communication_penalty_weight` adds that auxiliary loss when present. Evaluation writes `communication_metrics.json` for communication-aware models.
 
 ## CLI Options (inject run)
 

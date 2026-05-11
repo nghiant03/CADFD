@@ -52,7 +52,27 @@ Secondary criteria:
 
 CESTA is a distributed receiver-side request model. Each node first encodes its own local temporal window, estimates local diagnosis uncertainty, and decides which existing graph neighbors to request from and at what compression ratio.
 
-The graph topology is fixed to the existing connectivity graph. CESTA learns dynamic request and compression decisions over these candidate edges; it does not perform unconstrained graph discovery in the main method.
+The graph topology is a fixed directed candidate edge set derived from the existing connectivity data, but runtime communication availability is dynamic. CESTA learns request and compression decisions over currently available candidate edges; it does not perform unconstrained graph discovery in the main method.
+
+### Dynamic network construction
+
+Graph preparation should store a directed candidate edge list instead of a dense static adjacency artifact:
+
+```text
+edge_index[0, e] = sender node
+edge_index[1, e] = receiver node
+edge_prob[e] = raw connectivity probability p_sender,receiver
+```
+
+Candidate edges are thresholded exactly as directed entries in `connectivity.txt`; self-loops are excluded. A bursty link simulator runs once during graph preparation and stores a per-timestamp sampled link-success mask plus simulation metadata. Node observation availability remains separate from communication availability:
+
+```text
+M[t, i] = 1 if node i has an observed reading at timestamp t
+L[t, e] = 1 if directed communication edge e succeeds at timestamp t
+active_edge[t, e] = L[t, e] & M[t, sender(e)] & M[t, receiver(e)]
+```
+
+The burst simulator uses raw `p_ij` for both state transitions and packet success. Each undirected node pair has a shared GOOD/BAD environment chain plus direction-specific GOOD/BAD chains; the effective directed state is BAD if either chain is BAD. Initial states are sampled from each edge's stationary distribution. This keeps the candidate topology fixed while making the communication network realistic and reproducible.
 
 ### Local temporal encoder
 
@@ -112,11 +132,23 @@ CESTA aggregates only requested messages:
 a_i,1:T = Aggregate({Up(m_j→i) | j ∈ N(i), g_i,j = 1})
 ```
 
-The first aggregation design should be lightweight:
+Aggregation uses a GAT-inspired single-head attention mechanism, executed entirely receiver-side from already-received messages:
 
-- normalized sum or single-head additive attention;
-- no multi-head attention in the initial implementation;
-- optional learned fusion gate between local and neighbor context.
+```text
+Q_i   = W_q · h_i                    ← local state projects to query
+K_j   = W_k · h_j                    ← each received message projects to key
+V_j   = W_v · h_j                    ← each received message projects to value
+α_ij  = softmax_j(Q_i^T K_j / √d)   ← attention over received neighbors only
+a_i   = Σ_j α_ij · V_j              ← attention-weighted sum
+```
+
+When zero neighbors are requested, `a_i = 0` (no attention computed). When a requested neighbor's reply fails to arrive because its dynamic directed link is unavailable or a deployment deadline expires (e.g. 2× one-hop MQTT RTT), attention runs over the partial received set — the softmax denominator shrinks to match what actually arrived, which is identical to the gradient regime the centralized trainer sees when that neighbor is masked out. Deadline thresholds are documented as a system parameter, not tuned per experiment.
+
+Key properties:
+- **Zero communication overhead.** The Q/K/V projections and softmax use only the hidden states already received; no additional bits transmitted.
+- **Dynamic receptive field.** The attention softmax operates over the exact variable-cardinality set of actually-requested neighbors, not a padded fixed-size tensor. Masked interpretation matches the distributed inference loop exactly: loop over arrived messages, compute exp(Q·K_j) accumulators, normalize.
+- **Single-head by default.** Multi-head attention over small neighbor sets (typically 1–3 neighbors in a sparse sensor graph) fragments the already-small embedding dimension without improving expressivity. Single-head is the initial design; multi-head may be explored as an ablation if neighbor sets grow large.
+- **Fusion gate retained.** The learned `fusion` MLP combining `[h_i, a_i]` with a residual connection is preserved after attention aggregation.
 
 ### Classifier
 
@@ -189,7 +221,7 @@ Primary metrics should be based on energy consumption:
 2. Fixed temporal backbone matching CESTA's encoder without communication.
 3. ST-GCN.
 4. HiFiNet, if it targets sensor/graph fault diagnosis.
-5. Dense learned message passing with all existing graph edges and full embeddings.
+5. Dense learned message passing with all currently available directed candidate edges and full embeddings.
 6. Rule-based uncertainty/change-triggered communication with matched communication budget.
 7. Static top-k graph communication using strongest connectivity edges.
 8. Random communication at matched average budget.
@@ -200,7 +232,7 @@ In scope:
 
 - Intel graph datasets across all four fault ratios;
 - temp-only input for comparability with existing baselines;
-- learned receiver-side request and compression over existing graph edges;
+- learned receiver-side request and compression over currently available directed candidate edges;
 - Gumbel and RL training comparison;
 - theoretical TX+RX energy and on-device edge energy evaluation.
 
