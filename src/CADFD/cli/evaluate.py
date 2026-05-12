@@ -26,13 +26,10 @@ from CADFD.utils import (
     utc_now_iso,
 )
 
-app = typer.Typer(no_args_is_help=True)
-
 _defaults = EvaluateConfig()
 
 
-@app.command("run")
-def evaluate_run(
+def evaluate(
     model: Annotated[
         Path,
         typer.Option("--model", "-m", help="Path to trained model directory"),
@@ -162,18 +159,3 @@ def evaluate_run(
             json.dumps(manifest.to_dict(), indent=2)
         )
         logger.info("Manifest written to: {}", save_dir / "manifest.json")
-
-
-@app.command("list")
-def evaluate_list() -> None:
-    """List available evaluation metrics."""
-    from rich.console import Console
-    from rich.table import Table
-
-    metrics = ["accuracy", "precision", "recall", "f1", "confusion_matrix", "roc_auc"]
-    console = Console()
-    table = Table(title="Available Metrics", show_header=True)
-    table.add_column("Name", style="cyan", min_width=len(table.title or ""))
-    for m in metrics:
-        table.add_row(m)
-    console.print(table)

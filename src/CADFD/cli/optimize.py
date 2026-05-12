@@ -11,17 +11,18 @@ import typer
 from CADFD.logging import logger
 from CADFD.schema import OptimizeConfig
 
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(no_args_is_help=True, invoke_without_command=True)
 
 _defaults = OptimizeConfig()
 
 
-@app.command("run")
-def optimize_run(
+@app.callback()
+def optimize(
+    ctx: typer.Context,
     data: Annotated[
-        Path,
+        Optional[Path],
         typer.Option("--data", "-d", help="Path to injected dataset directory"),
-    ],
+    ] = None,
     model: Annotated[
         Optional[str],
         typer.Option("--model", "-m", help=f"Model architecture (default: {_defaults.model})"),
@@ -75,6 +76,11 @@ def optimize_run(
     ] = None,
 ) -> None:
     """Run hyperparameter optimization with Optuna."""
+    if ctx.invoked_subcommand is not None:
+        return
+    if data is None:
+        raise typer.BadParameter("Missing option '--data'.")
+
     overrides: dict[str, Any] = {}
     if model is not None:
         overrides["model"] = model

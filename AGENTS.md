@@ -76,7 +76,7 @@ Single-file module with shared runtime helpers, used mainly by the train/evaluat
 
 ## Run Artifacts
 
-Every `cadfd train run` invocation creates a dedicated run directory; runs are never overwritten.
+Every `cadfd train` invocation creates a dedicated run directory; runs are never overwritten.
 
 ```
 runs/<model>/<utc_ts>_<model>_seed<seed>_<shortsha>/
@@ -88,7 +88,7 @@ runs/<model>/<utc_ts>_<model>_seed<seed>_<shortsha>/
 └── predictions.npz        # y_true, y_pred (int32), y_prob (float32)
 ```
 
-`cadfd evaluate run` writes the same artifacts (plus a `kind="evaluate"` `manifest.json`) into a new run subdirectory when `--output` is provided; otherwise it writes in-place alongside the loaded model.
+`cadfd evaluate` writes the same artifacts (plus a `kind="evaluate"` `manifest.json`) into a new run subdirectory when `--output` is provided; otherwise it writes in-place alongside the loaded model.
 
 ## Configuration Design Pattern
 
@@ -120,12 +120,11 @@ Organized into two sub-packages by pipeline stage:
 
 ### Raw Sub-package (`datasets/raw/`)
 
-Pre-injection dataset loaders and registry.
+Pre-injection dataset loaders.
 
 - `BaseDataset` (`raw/base.py`) - Abstract base for raw dataset loaders: `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`.
 - `IntelLabDataset` (`raw/intel_lab.py`) - Concrete loader for Intel Berkeley Research Lab sensor data.
-- `ESP32DHT11Dataset` (`raw/esp32_dht11.py`) - Loader for ESP32-S3 DHT11 sensor readings (CSV from MQTT subscriber). Features: `temperature`, `humidity`. Groups by `device_id`.
-- `register_dataset` / `get_dataset` / `list_datasets` (`raw/registry.py`) - Dynamic dataset registry.
+- `get_dataset` / `list_datasets` (`raw/__init__.py`) - Static raw dataset lookup backed by `_DATASET_LOADERS`.
 
 ### Injected Sub-package (`datasets/injected/`)
 
@@ -217,11 +216,11 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommende
 
 ## Workflow
 
-1. **Fault Injection**: `uv run cadfd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
+1. **Fault Injection**: `uv run cadfd inject intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
 2. **Graph Preparation** (optional): `uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
-3. **Training**: `uv run cadfd train run lstm data/injected/intel_lab` or with config: `uv run cadfd train run lstm data/injected/intel_lab --config config/lstm.yaml`
-4. **Hyperparameter Search** (optional): `uv run cadfd optimize run --data data/injected/intel_lab --model lstm --n-trials 20 --epochs 10`
-5. **Evaluation**: `uv run cadfd evaluate run --model runs/lstm/<run_id> --data data/injected/intel_lab`
+3. **Training**: `uv run cadfd train lstm data/injected/intel_lab` or with config: `uv run cadfd train lstm data/injected/intel_lab --config config/lstm.yaml`
+4. **Hyperparameter Search** (optional): `uv run cadfd optimize --data data/injected/intel_lab --model lstm --n-trials 20 --epochs 10`
+5. **Evaluation**: `uv run cadfd evaluate --model runs/lstm/<run_id> --data data/injected/intel_lab`
 
 ## Optimization Module (`optimization/`)
 
@@ -247,10 +246,10 @@ the configured validation metric back to Optuna.
 ### CLI
 
 ```
-cadfd optimize run --data <dir> [--model lstm] [--n-trials N] [--epochs E]
-                   [--metric val_loss|val_macro_f1|val_acc] [--sampler tpe|random]
-                   [--pruner median|none] [--study-name NAME] [--storage URL]
-                   [--timeout SECONDS] [--seed S] [--output best_params.json]
+cadfd optimize --data <dir> [--model lstm] [--n-trials N] [--epochs E]
+               [--metric val_loss|val_macro_f1|val_acc] [--sampler tpe|random]
+               [--pruner median|none] [--study-name NAME] [--storage URL]
+               [--timeout SECONDS] [--seed S] [--output best_params.json]
 cadfd optimize show <study_name> [--storage URL] [--top K]
 ```
 
@@ -264,17 +263,15 @@ The CLI uses **Typer** with a centralized command namespace:
 
 ```
 cadfd                    # Main entry point
-├── inject              # Fault injection subcommands
-│   ├── run             # Run fault injection
-│   └── list            # List available datasets
+├── inject              # Run fault injection
 ├── prepare             # Data preparation subcommands
 │   └── graph           # Add graph topology to injected dataset
-├── train               # Training subcommands
-│   ├── run             # Train a model
-│   └── list            # List available models
-└── evaluate            # Evaluation subcommands
-    ├── run             # Evaluate a model
-    └── list            # List available metrics
+├── train               # Train a model
+├── evaluate            # Evaluate a model
+├── optimize            # Run Optuna hyperparameter optimization
+│   └── show            # Display study results
+├── report              # Aggregate and compare run artifacts
+└── list                # List datasets, models, metrics, or runs
 ```
 
 Run `cadfd --help` or `cadfd <subcommand> --help` for detailed options.
@@ -308,7 +305,7 @@ Per-event randomization and per-mote scaling are first-class:
 
 1. Implement a new dataset class in `src/CADFD/datasets/raw/` subclassing `BaseDataset`.
 2. Implement: `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`.
-3. Register in `datasets/raw/registry.py` with `register_dataset()`.
+3. Add it to `_DATASET_LOADERS` in `datasets/raw/__init__.py`.
 
 ## Model Metadata Requirements
 

@@ -32,19 +32,19 @@ uv sync
 
 ```bash
 # 1. Inject faults into raw sensor data
-uv run cadfd inject run intel_lab data/raw/Intel/data.txt data/injected/intel_lab
+uv run cadfd inject intel_lab data/raw/Intel/data.txt data/injected/intel_lab
 
 # 2. (Optional) Add graph topology for spatio-temporal models
 uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt
 
 # 3. Train a model
-uv run cadfd train run lstm data/injected/intel_lab
+uv run cadfd train lstm data/injected/intel_lab
 
 # 4. Evaluate
-uv run cadfd evaluate run --model models/lstm --data data/injected/intel_lab
+uv run cadfd evaluate --model models/lstm --data data/injected/intel_lab
 
 # 5. (Optional) Hyperparameter optimization
-uv run cadfd optimize run --data data/injected/intel_lab --n-trials 100
+uv run cadfd optimize --data data/injected/intel_lab --n-trials 100
 ```
 
 ## Project Structure
@@ -74,20 +74,14 @@ data/                  # Raw datasets and injected outputs
 
 ```
 cadfd
-├── inject
-│   ├── run             # Run fault injection on a dataset
-│   └── list            # List registered dataset loaders
+├── inject              # Run fault injection on a dataset
 ├── prepare
 │   └── graph           # Add graph topology to injected dataset
-├── train
-│   ├── run             # Train a model
-│   └── list            # List available model architectures
-├── evaluate
-│   ├── run             # Evaluate a trained model
-│   └── list            # List available metrics
-└── optimize
-    ├── run             # Run Optuna hyperparameter optimization
-    └── show            # Display study results
+├── train               # Train a model
+├── evaluate            # Evaluate a trained model
+├── optimize            # Run Optuna hyperparameter optimization
+│   └── show            # Display study results
+└── list                # List datasets, models, metrics, or runs
 ```
 
 Run `uv run cadfd --help` for full options.
@@ -108,7 +102,7 @@ Fault sequences are generated via a **Markov chain** with configurable transitio
 Training configs are YAML files in `config/`:
 
 ```bash
-uv run cadfd train run lstm data/injected/intel_lab --config config/lstm.yaml
+uv run cadfd train lstm data/injected/intel_lab --config config/lstm.yaml
 ```
 
 All defaults are defined in Pydantic schema classes (`src/CADFD/schema/`). CLI arguments override config file values, which override schema defaults.
@@ -131,7 +125,7 @@ uv run pyright src/             # Type check
 
 1. Subclass `BaseDataset` in `src/CADFD/datasets/raw/`
 2. Implement `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`
-3. Register in `datasets/raw/registry.py`
+3. Add it to `_DATASET_LOADERS` in `datasets/raw/__init__.py`
 
 ### Add a new fault type
 

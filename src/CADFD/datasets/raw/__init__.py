@@ -1,13 +1,32 @@
-"""Raw dataset loaders and registry."""
+"""Raw dataset loaders."""
+
+from pathlib import Path
 
 from CADFD.datasets.raw.base import BaseDataset
 from CADFD.datasets.raw.intel_lab import IntelLabDataset
-from CADFD.datasets.raw.registry import get_dataset, list_datasets, register_dataset
+
+_DATASET_LOADERS: dict[str, type[BaseDataset]] = {
+    "intel_lab": IntelLabDataset,
+}
+
+
+def get_dataset(name: str, data_path: str | Path) -> BaseDataset:
+    """Create a raw dataset loader by name."""
+    dataset_cls = _DATASET_LOADERS.get(name.lower())
+    if dataset_cls is None:
+        available = ", ".join(list_datasets())
+        raise KeyError(f"Unknown dataset: {name}. Available: {available}")
+    return dataset_cls(data_path)
+
+
+def list_datasets() -> list[str]:
+    """Return available raw dataset names."""
+    return list(_DATASET_LOADERS)
+
 
 __all__ = [
     "BaseDataset",
     "IntelLabDataset",
     "get_dataset",
     "list_datasets",
-    "register_dataset",
 ]

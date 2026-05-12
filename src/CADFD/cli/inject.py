@@ -9,11 +9,8 @@ from CADFD.logging import logger
 from CADFD.schema import InjectionConfig
 from CADFD.seed import seed_everything
 
-app = typer.Typer(no_args_is_help=True)
 
-
-@app.command("run")
-def inject_run(
+def inject(
     dataset: Annotated[
         str,
         typer.Argument(help="Dataset to use"),
@@ -81,20 +78,3 @@ def inject_run(
     logger.info("Saving to: {}", output)
     result.save(output)
     result.print_summary()
-
-
-@app.command("list")
-def inject_list() -> None:
-    """List available datasets."""
-    from rich.console import Console
-    from rich.table import Table
-
-    from CADFD.datasets import list_datasets
-
-    console = Console()
-    datasets = list_datasets()
-    table = Table(title="Available Datasets", show_header=True)
-    table.add_column("Name", style="cyan", min_width=len(table.title or ""))
-    for ds in datasets:
-        table.add_row(ds)
-    console.print(table)

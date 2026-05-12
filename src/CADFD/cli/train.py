@@ -35,8 +35,6 @@ from CADFD.utils import (
     utc_now_iso,
 )
 
-app = typer.Typer(no_args_is_help=True)
-
 _FIELD_DEFAULTS = TrainConfig.model_fields
 
 
@@ -45,8 +43,7 @@ def _field_default(name: str) -> object:
     return _FIELD_DEFAULTS[name].default
 
 
-@app.command("run")
-def train_run(
+def train(
     model: Annotated[
         str,
         typer.Argument(help="Model architecture"),
@@ -295,19 +292,3 @@ def train_run(
     )
     (run_dir / "manifest.json").write_text(json.dumps(manifest.to_dict(), indent=2))
     logger.info("Manifest written to: {}", run_dir / "manifest.json")
-
-
-@app.command("list")
-def train_list() -> None:
-    """List available model architectures."""
-    from rich.console import Console
-    from rich.table import Table
-
-    from CADFD.models import list_models
-
-    console = Console()
-    table = Table(title="Available Models", show_header=True)
-    table.add_column("Name", style="cyan", min_width=len(table.title or ""))
-    for m in list_models():
-        table.add_row(m)
-    console.print(table)
