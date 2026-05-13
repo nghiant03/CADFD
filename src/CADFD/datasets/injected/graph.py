@@ -1,14 +1,11 @@
-"""Graph topology construction for sensor networks.
-
-Loads adjacency matrices from connectivity data files and provides
-a GraphDataset container for graph-structured fault diagnosis data.
-"""
+"""Dynamic directed graph dataset construction for sensor networks."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,8 +13,7 @@ from numpy.typing import NDArray
 from CADFD.datasets.injected.tabular import InjectedDataset
 from CADFD.datasets.injected.windowed import (
     WindowedSplits,
-    split_and_window,
-    collect_splits,
+    create_windows_with_starts,
     validate_features,
 )
 from CADFD.logging import logger
@@ -26,51 +22,32 @@ from CADFD.schema.types import WindowConfig
 
 @dataclass
 class GraphMetadata:
-    """Typed metadata produced by graph-based data preparation.
-
-    Attributes:
-        adjacency: Binary adjacency matrix ``(num_nodes, num_nodes)``.
-        node_ids: Sorted sensor/group IDs forming graph nodes.
-        num_nodes: Number of graph nodes.
-        threshold: Connectivity probability threshold used to build edges.
-    """
-
-    adjacency: NDArray[np.float32]
+    edge_index: NDArray[np.int64]
+    edge_prob: NDArray[np.float32]
     node_ids: list[int]
     num_nodes: int
     threshold: float
+    edge_convention: str = "sender_to_receiver"
+    dynamic_link_seed: int | None = None
+    burst_params: dict[str, float] = field(default_factory=dict)
+    timestamps: list[Any] = field(default_factory=list)
+    link_mask_shape: tuple[int, int] | None = None
+    adjacency: NDArray[np.float32] | None = None
+
+    @property
+    def num_edges(self) -> int:
+        return int(self.edge_index.shape[1])
 
 
-def load_adjacency_matrix(
+def load_directed_edges(
     connectivity_path: str | Path,
     node_ids: list[int],
     threshold: float = 0.5,
-) -> NDArray[np.float32]:
-    """Load adjacency matrix from a connectivity data file.
-
-    Reads pairwise connectivity probabilities and thresholds them to
-    produce a binary adjacency matrix.  Self-loops are always added.
-
-    The connectivity file is whitespace-separated with three columns::
-
-        source_id  dest_id  connectivity_probability
-
-    Only edges between nodes present in *node_ids* are kept.
-
-    Args:
-        connectivity_path: Path to the connectivity data file.
-        node_ids: Sorted sensor/group IDs forming graph nodes.
-        threshold: Minimum connectivity probability to create an edge (0-1).
-
-    Returns:
-        Binary symmetric adjacency matrix ``(num_nodes, num_nodes)``
-        with self-loops, dtype float32.
-    """
+) -> tuple[NDArray[np.int64], NDArray[np.float32]]:
     connectivity_path = Path(connectivity_path)
-    num_nodes = len(node_ids)
     id_to_idx = {nid: idx for idx, nid in enumerate(node_ids)}
-
-    adj = np.zeros((num_nodes, num_nodes), dtype=np.float32)
+    edges: list[tuple[int, int]] = []
+    probs: list[float] = []
 
     with connectivity_path.open() as fh:
         for line in fh:
@@ -79,90 +56,205 @@ def load_adjacency_matrix(
                 continue
             src, dst = int(parts[0]), int(parts[1])
             prob = float(parts[2])
-            if src in id_to_idx and dst in id_to_idx and prob >= threshold:
-                i, j = id_to_idx[src], id_to_idx[dst]
-                adj[i, j] = 1.0
-                adj[j, i] = 1.0
+            if src == dst or prob < threshold:
+                continue
+            if src in id_to_idx and dst in id_to_idx:
+                edges.append((id_to_idx[src], id_to_idx[dst]))
+                probs.append(prob)
 
-    np.fill_diagonal(adj, 1.0)
+    if edges:
+        edge_index = np.asarray(edges, dtype=np.int64).T
+        edge_prob = np.asarray(probs, dtype=np.float32)
+    else:
+        edge_index = np.empty((2, 0), dtype=np.int64)
+        edge_prob = np.empty((0,), dtype=np.float32)
 
-    num_edges = int(adj.sum() - num_nodes)
     logger.info(
-        "Graph: {} nodes, {} edges (threshold={:.2f}), density={:.2f}%",
-        num_nodes,
-        num_edges // 2,
+        "Graph: {} nodes, {} directed edges (threshold={:.2f})",
+        len(node_ids),
+        edge_index.shape[1],
         threshold,
-        100.0 * num_edges / (num_nodes * (num_nodes - 1)) if num_nodes > 1 else 0,
     )
+    return edge_index, edge_prob
 
+
+def load_adjacency_matrix(
+    connectivity_path: str | Path,
+    node_ids: list[int],
+    threshold: float = 0.5,
+) -> NDArray[np.float32]:
+    edge_index, _ = load_directed_edges(connectivity_path, node_ids, threshold)
+    adj = np.zeros((len(node_ids), len(node_ids)), dtype=np.float32)
+    if edge_index.shape[1] > 0:
+        adj[edge_index[0], edge_index[1]] = 1.0
+        adj[edge_index[1], edge_index[0]] = 1.0
+    np.fill_diagonal(adj, 1.0)
     return adj
+
+
+def simulate_bursty_link_mask(
+    num_timestamps: int,
+    edge_index: NDArray[np.int64],
+    edge_prob: NDArray[np.float32],
+    *,
+    seed: int,
+    rho: float,
+    q_bad_base: float,
+    q_recover_base: float,
+    bad_success_floor: float,
+) -> NDArray[np.bool_]:
+    if not 0.0 <= rho <= 1.0:
+        raise ValueError("rho must be in [0, 1]")
+    if not 0.0 <= bad_success_floor <= 1.0:
+        raise ValueError("bad_success_floor must be in [0, 1]")
+
+    num_edges = edge_index.shape[1]
+    rng = np.random.default_rng(seed)
+    link_mask = np.zeros((num_timestamps, num_edges), dtype=np.bool_)
+    if num_timestamps == 0 or num_edges == 0:
+        return link_mask
+
+    q_bad_env = q_bad_base * rho * (1.0 - edge_prob)
+    q_recover_env = q_recover_base * rho * edge_prob
+    q_bad_dir = q_bad_base * (1.0 - rho) * (1.0 - edge_prob)
+    q_recover_dir = q_recover_base * (1.0 - rho) * edge_prob
+
+    pair_keys: list[tuple[int, int]] = [
+        (min(int(s), int(r)), max(int(s), int(r))) for s, r in edge_index.T
+    ]
+    unique_pairs = sorted(set(pair_keys))
+    pair_to_idx = {pair: idx for idx, pair in enumerate(unique_pairs)}
+    pair_edge_indices: dict[tuple[int, int], list[int]] = {pair: [] for pair in unique_pairs}
+    for edge_idx, pair in enumerate(pair_keys):
+        pair_edge_indices[pair].append(edge_idx)
+
+    env_state = np.zeros((len(unique_pairs),), dtype=np.bool_)
+    for pair, pair_idx in pair_to_idx.items():
+        edge_indices = pair_edge_indices[pair]
+        qb = float(np.mean(q_bad_env[edge_indices]))
+        qr = float(np.mean(q_recover_env[edge_indices]))
+        bad_prob = qb / max(qb + qr, 1e-12)
+        env_state[pair_idx] = rng.random() < bad_prob
+
+    dir_bad_prob = q_bad_dir / np.maximum(q_bad_dir + q_recover_dir, 1e-12)
+    dir_state = rng.random(num_edges) < dir_bad_prob
+
+    for t in range(num_timestamps):
+        if t > 0:
+            for pair, pair_idx in pair_to_idx.items():
+                edge_indices = pair_edge_indices[pair]
+                qb = float(np.mean(q_bad_env[edge_indices]))
+                qr = float(np.mean(q_recover_env[edge_indices]))
+                if env_state[pair_idx]:
+                    env_state[pair_idx] = not (rng.random() < qr)
+                else:
+                    env_state[pair_idx] = rng.random() < qb
+
+            recover = rng.random(num_edges) < q_recover_dir
+            fail = rng.random(num_edges) < q_bad_dir
+            dir_state = np.where(dir_state, ~recover, fail)
+
+        env_bad = np.asarray([env_state[pair_to_idx[pair]] for pair in pair_keys], dtype=np.bool_)
+        effective_bad = env_bad | dir_state
+        success_prob = np.where(effective_bad, bad_success_floor, edge_prob)
+        link_mask[t] = rng.random(num_edges) < success_prob
+
+    return link_mask
+
+
+def pack_link_mask(mask: NDArray[np.bool_]) -> tuple[NDArray[np.uint8], NDArray[np.int64]]:
+    return np.packbits(mask.reshape(-1)), np.asarray(mask.shape, dtype=np.int64)
+
+
+def unpack_link_mask(packed: NDArray[np.uint8], shape: tuple[int, int] | NDArray[np.integer[Any]]) -> NDArray[np.bool_]:
+    shape_tuple = tuple(int(x) for x in shape)
+    total = int(np.prod(shape_tuple))
+    return np.unpackbits(packed)[:total].reshape(shape_tuple).astype(np.bool_)
 
 
 @dataclass
 class GraphDataset(InjectedDataset):
-    """Graph-structured sensor dataset.
-
-    Extends ``InjectedDataset`` with graph topology (adjacency matrix
-    and node mapping).  Overrides ``prepare()`` to perform graph-aligned
-    windowing where all sensor features are concatenated per timestep.
-
-    Attributes:
-        adjacency: Binary adjacency matrix (num_nodes, num_nodes) with self-loops.
-        node_ids: Sorted sensor/group IDs forming graph nodes.
-        threshold: Connectivity probability threshold used to build edges.
-    """
-
-    adjacency: NDArray[np.float32] = field(
-        default_factory=lambda: np.empty((0, 0), dtype=np.float32)
-    )
+    edge_index: NDArray[np.int64] = field(default_factory=lambda: np.empty((2, 0), dtype=np.int64))
+    edge_prob: NDArray[np.float32] = field(default_factory=lambda: np.empty((0,), dtype=np.float32))
     node_ids: list[int] = field(default_factory=list)
     threshold: float = 0.5
+    link_mask: NDArray[np.bool_] = field(default_factory=lambda: np.empty((0, 0), dtype=np.bool_))
+    graph_meta: dict[str, Any] = field(default_factory=dict)
 
     @property
     def num_nodes(self) -> int:
-        """Return the number of graph nodes."""
         return len(self.node_ids)
 
+    @property
+    def adjacency(self) -> NDArray[np.float32]:
+        adj = np.zeros((self.num_nodes, self.num_nodes), dtype=np.float32)
+        if self.edge_index.shape[1] > 0:
+            adj[self.edge_index[0], self.edge_index[1]] = 1.0
+        return adj
+
     def save(self, path: str | Path) -> None:
-        """Save graph dataset to directory.
-
-        Writes the injected data (CSV + meta JSON) via the parent class,
-        then adds graph-specific files (adjacency matrix + graph metadata).
-        """
         super().save(path)
-
         directory = Path(path)
-        np.save(directory / "adjacency.npy", self.adjacency)
-
+        np.savez_compressed(
+            directory / "graph_edges.npz",
+            edge_index=self.edge_index.astype(np.int64),
+            edge_prob=self.edge_prob.astype(np.float32),
+            node_ids=np.asarray(self.node_ids, dtype=np.int64),
+        )
+        packed, shape = pack_link_mask(self.link_mask)
+        np.savez_compressed(directory / "dynamic_link_mask.npz", link_mask=packed, shape=shape)
         meta = {
             "node_ids": self.node_ids,
             "threshold": self.threshold,
+            "edge_convention": "sender_to_receiver",
+            "edge_count": int(self.edge_index.shape[1]),
+            "num_nodes": self.num_nodes,
+            "link_mask_shape": list(self.link_mask.shape),
+            **self.graph_meta,
         }
-        (directory / "graph_meta.json").write_text(json.dumps(meta, indent=2))
+        (directory / "dynamic_graph_meta.json").write_text(json.dumps(meta, indent=2, default=str))
+        legacy_adj = directory / "adjacency.npy"
+        legacy_meta = directory / "graph_meta.json"
+        if legacy_adj.exists():
+            legacy_adj.unlink()
+        if legacy_meta.exists():
+            legacy_meta.unlink()
 
     @classmethod
     def load(cls, path: str | Path) -> GraphDataset:
-        """Load graph dataset from directory.
-
-        Expects the directory to contain both injected data files and
-        graph-specific files (``adjacency.npy``, ``graph_meta.json``).
-
-        Raises:
-            FileNotFoundError: If graph files are missing.
-        """
         directory = Path(path)
-
         parent = InjectedDataset.load(directory)
-        adjacency: NDArray[np.float32] = np.load(directory / "adjacency.npy")
-        meta = json.loads((directory / "graph_meta.json").read_text())
+        if (directory / "graph_edges.npz").exists():
+            edges = np.load(directory / "graph_edges.npz")
+            edge_index = edges["edge_index"].astype(np.int64)
+            edge_prob = edges["edge_prob"].astype(np.float32)
+            node_ids = [int(x) for x in edges["node_ids"].tolist()]
+            link_payload = np.load(directory / "dynamic_link_mask.npz")
+            link_mask = unpack_link_mask(link_payload["link_mask"], link_payload["shape"])
+            meta = json.loads((directory / "dynamic_graph_meta.json").read_text())
+            threshold = float(meta.get("threshold", 0.5))
+        else:
+            adjacency: NDArray[np.float32] = np.load(directory / "adjacency.npy")
+            meta = json.loads((directory / "graph_meta.json").read_text())
+            node_ids = [int(x) for x in meta["node_ids"]]
+            edge_index = adjacency.astype(bool).nonzero()
+            keep = edge_index[0] != edge_index[1]
+            edge_index = np.asarray(edge_index, dtype=np.int64)[:, keep]
+            edge_prob = np.ones((edge_index.shape[1],), dtype=np.float32)
+            timestamps = sorted(parent.df["timestamp"].unique())
+            link_mask = np.ones((len(timestamps), edge_index.shape[1]), dtype=np.bool_)
+            threshold = float(meta["threshold"])
 
         return cls(
             df=parent.df,
             config=parent.config,
             feature_names=parent.feature_names,
-            adjacency=adjacency,
-            node_ids=meta["node_ids"],
-            threshold=meta["threshold"],
+            edge_index=edge_index,
+            edge_prob=edge_prob,
+            node_ids=node_ids,
+            threshold=threshold,
+            link_mask=link_mask,
+            graph_meta=meta,
         )
 
     @classmethod
@@ -171,30 +263,49 @@ class GraphDataset(InjectedDataset):
         path: str | Path,
         connectivity_path: str | Path,
         threshold: float = 0.5,
+        seed: int = 0,
+        rho: float = 0.5,
+        q_bad_base: float = 0.02,
+        q_recover_base: float = 0.20,
+        bad_success_floor: float = 0.05,
     ) -> GraphDataset:
-        """Build graph dataset from a saved InjectedDataset and connectivity file.
-
-        Args:
-            path: Path to directory containing the saved InjectedDataset.
-            connectivity_path: Path to whitespace-separated connectivity file
-                with columns ``source_id dest_id probability``.
-            threshold: Minimum connectivity probability for an edge (default 0.5).
-
-        Returns:
-            GraphDataset with adjacency loaded from the connectivity file.
-        """
         parent = InjectedDataset.load(path)
         df = parent.df
         group_col = parent.group_column
         node_ids = sorted(int(g) for g in df[group_col].unique())
-        adj = load_adjacency_matrix(connectivity_path, node_ids, threshold=threshold)
+        edge_index, edge_prob = load_directed_edges(connectivity_path, node_ids, threshold=threshold)
+        timestamps = sorted(df["timestamp"].unique())
+        link_mask = simulate_bursty_link_mask(
+            len(timestamps),
+            edge_index,
+            edge_prob,
+            seed=seed,
+            rho=rho,
+            q_bad_base=q_bad_base,
+            q_recover_base=q_recover_base,
+            bad_success_floor=bad_success_floor,
+        )
+        graph_meta = {
+            "seed": seed,
+            "timestamps": [str(ts) for ts in timestamps],
+            "burst_params": {
+                "rho": rho,
+                "q_bad_base": q_bad_base,
+                "q_recover_base": q_recover_base,
+                "bad_success_floor": bad_success_floor,
+            },
+            "masks_applied": True,
+        }
         return cls(
             df=df,
             config=parent.config,
             feature_names=parent.feature_names,
-            adjacency=adj,
+            edge_index=edge_index,
+            edge_prob=edge_prob,
             node_ids=node_ids,
             threshold=threshold,
+            link_mask=link_mask,
+            graph_meta=graph_meta,
         )
 
     def prepare(
@@ -203,38 +314,6 @@ class GraphDataset(InjectedDataset):
         features: list[str] | None = None,
         required_metadata: set[str] | None = None,
     ) -> WindowedSplits:
-        """Convert this graph dataset into windowed train/val/test arrays.
-
-        When *required_metadata* does not include ``"graph"``, delegates to
-        the parent ``InjectedDataset.prepare()`` which windows each sensor
-        group independently with scalar per-timestep labels.  This allows
-        non-graph models (e.g. CNN1D, LSTM) to train on graph datasets
-        without a shape mismatch.
-
-        Otherwise, this method aligns ALL sensor groups onto a common
-        time axis and concatenates their features at each timestep.  The
-        resulting ``input_size = num_nodes * features_per_node`` lets the
-        ST-GCN reshape and apply graph convolutions across the sensor
-        topology.
-
-        Labels are kept **per-node**: each timestep retains the independent
-        fault state of every sensor so the model can perform per-node fault
-        diagnosis.  Label shape is ``(num_windows, window_size, num_nodes)``.
-
-        Args:
-            window_config: Windowing configuration. Falls back to the
-                injection config stored inside the dataset.
-            features: Subset of feature names. ``None`` uses all features.
-            required_metadata: Metadata keys required by the consumer
-                (e.g. a model). When ``"graph"`` is not in this set the
-                parent tabular preparation is used instead.
-
-        Returns:
-            WindowedSplits with windowed arrays and graph metadata.
-
-        Raises:
-            ValueError: If any name in *features* is not in the dataset.
-        """
         if required_metadata is not None and "graph" not in required_metadata:
             return InjectedDataset.prepare(
                 self,
@@ -244,55 +323,57 @@ class GraphDataset(InjectedDataset):
             )
         wc = window_config if window_config is not None else self.config.window
         selected_features = validate_features(features, self.feature_names)
+        if selected_features != ["temp"]:
+            raise ValueError('Dynamic graph preparation currently supports only features=["temp"]')
 
         df = self.df
         group_col = self.group_column
         node_ids = self.node_ids
+        timestamps = sorted(df["timestamp"].unique())
+        ts_index = {ts: i for i, ts in enumerate(timestamps)}
+        node_index = {nid: i for i, nid in enumerate(node_ids)}
+        T = len(timestamps)
+        N = len(node_ids)
 
-        common_ts = sorted(df["timestamp"].unique())
+        X = np.zeros((T, N, 1), dtype=np.float32)
+        y = np.full((T, N), -1, dtype=np.int32)
+        node_mask = np.zeros((T, N), dtype=np.bool_)
 
-        ts_index = {ts: i for i, ts in enumerate(common_ts)}
-        n_ts = len(common_ts)
-        n_feat = len(selected_features)
-        P = len(node_ids)
+        for row in df[["timestamp", group_col, "temp", "fault_state"]].itertuples(index=False):
+            t = ts_index[getattr(row, "timestamp")]
+            n = node_index[int(getattr(row, group_col))]
+            X[t, n, 0] = np.float32(getattr(row, "temp"))
+            y[t, n] = np.int32(getattr(row, "fault_state"))
+            node_mask[t, n] = True
 
-        combined = np.zeros((n_ts, P * n_feat), dtype=np.float32)
-        labels_all = np.zeros((n_ts, P), dtype=np.int32) - 1
-
-        for p_idx, nid in enumerate(node_ids):
-            group_df = df[df[group_col] == nid].set_index("timestamp").sort_index()
-            feat_col_start = p_idx * n_feat
-            feat_col_end = (p_idx + 1) * n_feat
-            for ts in group_df.index:
-                if ts in ts_index:
-                    i = ts_index[ts]
-                    combined[i, feat_col_start:feat_col_end] = (
-                        group_df.loc[ts, selected_features].to_numpy(dtype=np.float32)
-                    )
-                    labels_all[i, p_idx] = int(group_df.loc[ts, "fault_state"])
-
-        X_tr, y_tr, X_va, y_va, X_te, y_te = split_and_window(
-            combined, labels_all, wc
+        edge_mask_all = self._available_edge_mask(node_mask)
+        X_tr, y_tr, train_starts = create_windows_with_starts(X, y, wc.window_size, wc.train_stride)
+        train_end = int(T * wc.train_ratio)
+        val_len = int(train_end * wc.val_ratio) if wc.val_ratio > 0 else 0
+        val_start = train_end - val_len if wc.val_ratio > 0 else train_end
+        X_train, y_train, train_starts = create_windows_with_starts(
+            X[:val_start], y[:val_start], wc.window_size, wc.train_stride
         )
-
-        n_feat = len(selected_features) * len(node_ids)
-        num_nodes = len(node_ids)
-        X_train, y_train, X_val, y_val, X_test, y_test = collect_splits(
-            wc, n_feat,
-            [X_tr] if len(X_tr) > 0 else [],
-            [y_tr] if len(y_tr) > 0 else [],
-            [X_va] if len(X_va) > 0 else [],
-            [y_va] if len(y_va) > 0 else [],
-            [X_te] if len(X_te) > 0 else [],
-            [y_te] if len(y_te) > 0 else [],
-            label_trailing_shape=(num_nodes,),
+        X_val, y_val, val_starts = create_windows_with_starts(
+            X[val_start:train_end], y[val_start:train_end], wc.window_size, wc.test_stride
         )
+        X_test, y_test, test_starts = create_windows_with_starts(
+            X[train_end:], y[train_end:], wc.window_size, wc.test_stride
+        )
+        val_starts = val_starts + val_start
+        test_starts = test_starts + train_end
 
-        graph_meta = GraphMetadata(
-            adjacency=self.adjacency,
+        metadata = GraphMetadata(
+            edge_index=self.edge_index,
+            edge_prob=self.edge_prob,
             node_ids=self.node_ids,
             num_nodes=self.num_nodes,
             threshold=self.threshold,
+            dynamic_link_seed=self.graph_meta.get("seed"),
+            burst_params=dict(self.graph_meta.get("burst_params", {})),
+            timestamps=[str(ts) for ts in timestamps],
+            link_mask_shape=tuple(self.link_mask.shape),
+            adjacency=self.adjacency,
         )
 
         return WindowedSplits(
@@ -302,5 +383,33 @@ class GraphDataset(InjectedDataset):
             y_val=y_val,
             X_test=X_test,
             y_test=y_test,
-            metadata={"graph": graph_meta},
+            metadata={"graph": metadata},
+            node_mask_train=self._window_by_starts(node_mask, train_starts, wc.window_size),
+            node_mask_val=self._window_by_starts(node_mask, val_starts, wc.window_size),
+            node_mask_test=self._window_by_starts(node_mask, test_starts, wc.window_size),
+            edge_mask_train=self._window_by_starts(edge_mask_all, train_starts, wc.window_size),
+            edge_mask_val=self._window_by_starts(edge_mask_all, val_starts, wc.window_size),
+            edge_mask_test=self._window_by_starts(edge_mask_all, test_starts, wc.window_size),
         )
+
+    def _available_edge_mask(self, node_mask: NDArray[np.bool_]) -> NDArray[np.bool_]:
+        if self.link_mask.shape != (node_mask.shape[0], self.edge_index.shape[1]):
+            raise ValueError(
+                f"link_mask shape {self.link_mask.shape} does not match "
+                f"(T,E)=({node_mask.shape[0]},{self.edge_index.shape[1]})"
+            )
+        if self.edge_index.shape[1] == 0:
+            return self.link_mask.copy()
+        sender = self.edge_index[0]
+        receiver = self.edge_index[1]
+        return self.link_mask & node_mask[:, sender] & node_mask[:, receiver]
+
+    @staticmethod
+    def _window_by_starts(
+        values: NDArray[np.bool_],
+        starts: NDArray[np.int64],
+        window_size: int,
+    ) -> NDArray[np.bool_]:
+        if len(starts) == 0:
+            return np.empty((0, window_size) + values.shape[1:], dtype=np.bool_)
+        return np.stack([values[i : i + window_size] for i in starts]).astype(np.bool_)

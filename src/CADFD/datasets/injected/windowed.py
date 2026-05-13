@@ -10,9 +10,19 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import torch
 from numpy.typing import NDArray
 
 from CADFD.schema.types import WindowConfig
+
+
+@dataclass
+class GraphWindowBatch:
+    x: torch.Tensor
+    y: torch.Tensor
+    node_mask: torch.Tensor
+    edge_index: torch.Tensor
+    edge_mask: torch.Tensor
 
 
 @dataclass
@@ -41,10 +51,18 @@ class WindowedSplits:
     X_test: NDArray[np.float32]
     y_test: NDArray[np.int32]
     metadata: dict[str, Any] = field(default_factory=dict)
+    node_mask_train: NDArray[np.bool_] | None = None
+    node_mask_val: NDArray[np.bool_] | None = None
+    node_mask_test: NDArray[np.bool_] | None = None
+    edge_mask_train: NDArray[np.bool_] | None = None
+    edge_mask_val: NDArray[np.bool_] | None = None
+    edge_mask_test: NDArray[np.bool_] | None = None
 
     @property
     def input_size(self) -> int:
         """Return the feature dimension (last axis of X_train)."""
+        if self.X_train.ndim == 4:
+            return int(self.X_train.shape[-2] * self.X_train.shape[-1])
         return int(self.X_train.shape[-1])
 
     @property
@@ -77,17 +95,27 @@ def create_windows(
         Tuple of ``(X, y)`` where X has shape ``(num_windows, window_size, features)``
         and y has shape ``(num_windows, window_size, ...)``.
     """
+    return create_windows_with_starts(data, labels, window_size, stride)[:2]
+
+
+def create_windows_with_starts(
+    data: NDArray[np.float32],
+    labels: NDArray[np.int32],
+    window_size: int,
+    stride: int,
+) -> tuple[NDArray[np.float32], NDArray[np.int32], NDArray[np.int64]]:
     if len(data) < window_size:
         y_shape = (0, window_size) + labels.shape[1:]
         return (
-            np.empty((0, window_size, data.shape[1]), dtype=np.float32),
+            np.empty((0, window_size) + data.shape[1:], dtype=np.float32),
             np.empty(y_shape, dtype=np.int32),
+            np.empty((0,), dtype=np.int64),
         )
 
-    starts = list(range(0, len(data) - window_size + 1, stride))
+    starts = np.array(list(range(0, len(data) - window_size + 1, stride)), dtype=np.int64)
     X = np.stack([data[i : i + window_size] for i in starts])
     y = np.stack([labels[i : i + window_size] for i in starts])
-    return X.astype(np.float32), y.astype(np.int32)
+    return X.astype(np.float32), y.astype(np.int32), starts
 
 
 def split_and_window(
