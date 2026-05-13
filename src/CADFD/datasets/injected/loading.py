@@ -27,11 +27,16 @@ def load_dataset(path: str | Path) -> InjectedDataset:
     from CADFD.datasets.injected.graph import GraphDataset
 
     directory = Path(path)
-    has_graph = (
+    has_dynamic_graph = (
+        (directory / "graph_edges.npz").exists()
+        and (directory / "dynamic_link_mask.npz").exists()
+        and (directory / "dynamic_graph_meta.json").exists()
+    )
+    has_legacy_graph = (
         (directory / "adjacency.npy").exists()
         and (directory / "graph_meta.json").exists()
     )
 
-    if has_graph:
+    if has_dynamic_graph or has_legacy_graph:
         return GraphDataset.load(directory)
     return InjectedDataset.load(directory)

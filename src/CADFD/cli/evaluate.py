@@ -108,7 +108,14 @@ def evaluate(
 
     started_at = utc_now_iso()
     t0 = time.perf_counter()
-    result = evaluator.evaluate(net, prepared.X_test, prepared.y_test)
+    result = evaluator.evaluate(
+        net,
+        prepared.X_test,
+        prepared.y_test,
+        metadata=prepared.metadata,
+        node_mask=prepared.node_mask_test,
+        edge_mask=prepared.edge_mask_test,
+    )
     duration = time.perf_counter() - t0
     ended_at = utc_now_iso()
 

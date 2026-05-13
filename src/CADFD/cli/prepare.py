@@ -26,13 +26,28 @@ def prepare_graph(
         float,
         typer.Option("--threshold", "-t", help="Connectivity probability threshold"),
     ] = 0.5,
+    seed: Annotated[
+        int,
+        typer.Option("--seed", "-s", help="Dynamic link simulation seed"),
+    ] = 0,
+    rho: Annotated[
+        float,
+        typer.Option("--rho", help="Shared environment burst intensity fraction"),
+    ] = 0.5,
+    q_bad_base: Annotated[
+        float,
+        typer.Option("--q-bad-base", help="Base GOOD-to-BAD transition probability"),
+    ] = 0.02,
+    q_recover_base: Annotated[
+        float,
+        typer.Option("--q-recover-base", help="Base BAD-to-GOOD transition probability"),
+    ] = 0.20,
+    bad_success_floor: Annotated[
+        float,
+        typer.Option("--bad-success-floor", help="Success probability while link state is BAD"),
+    ] = 0.05,
 ) -> None:
-    """Add graph topology to an injected dataset.
-
-    Reads pairwise connectivity probabilities from the connectivity file,
-    builds a binary adjacency matrix, and saves it alongside the existing
-    injected dataset files.
-    """
+    """Add dynamic directed graph topology to an injected dataset."""
     from CADFD.datasets.injected.graph import GraphDataset
 
     if not data.exists():
@@ -43,12 +58,23 @@ def prepare_graph(
         logger.error("Connectivity file not found: {}", connectivity)
         raise typer.Exit(code=1)
 
-    logger.info("Building graph from: {}", connectivity)
-    graph_ds = GraphDataset.from_connectivity(data, connectivity, threshold=threshold)
+    logger.info("Building dynamic directed graph from: {}", connectivity)
+    graph_ds = GraphDataset.from_connectivity(
+        data,
+        connectivity,
+        threshold=threshold,
+        seed=seed,
+        rho=rho,
+        q_bad_base=q_bad_base,
+        q_recover_base=q_recover_base,
+        bad_success_floor=bad_success_floor,
+    )
     graph_ds.save(data)
     logger.info(
-        "Saved graph data: {} nodes, threshold={:.2f} -> {}",
+        "Saved dynamic graph data: T={}, nodes={}, directed_edges={}, threshold={:.2f} -> {}",
+        graph_ds.link_mask.shape[0],
         graph_ds.num_nodes,
+        graph_ds.edge_index.shape[1],
         graph_ds.threshold,
         data,
     )

@@ -234,6 +234,11 @@ def train(
         y_train=prepared.y_train,
         X_val=prepared.X_val if prepared.has_val else None,
         y_val=prepared.y_val if prepared.has_val else None,
+        metadata=prepared.metadata,
+        node_mask_train=prepared.node_mask_train,
+        edge_mask_train=prepared.edge_mask_train,
+        node_mask_val=prepared.node_mask_val if prepared.has_val else None,
+        edge_mask_val=prepared.edge_mask_val if prepared.has_val else None,
     )
     duration = time.perf_counter() - t0
     ended_at = utc_now_iso()
@@ -262,7 +267,15 @@ def train(
             device=str(trainer.device),
         )
         criterion = build_loss(config, trainer.device)
-        eval_result = evaluator.evaluate(net, prepared.X_test, prepared.y_test, criterion=criterion)
+        eval_result = evaluator.evaluate(
+            net,
+            prepared.X_test,
+            prepared.y_test,
+            criterion=criterion,
+            metadata=prepared.metadata,
+            node_mask=prepared.node_mask_test,
+            edge_mask=prepared.edge_mask_test,
+        )
         evaluator.log_results(eval_result)
 
         eval_result.save(
