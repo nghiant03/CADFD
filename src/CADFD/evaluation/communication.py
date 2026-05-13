@@ -29,6 +29,7 @@ def collect_model_communication_config(model: BaseModel) -> dict[str, Any] | Non
 def aggregate_communication_stats(
     split_stats: dict[str, list[dict[str, float]]],
     model: BaseModel,
+    metadata: dict[str, object] | None = None,
 ) -> dict[str, Any] | None:
     config = collect_model_communication_config(model)
     if config is None:
@@ -39,6 +40,9 @@ def aggregate_communication_stats(
         "config": config,
         "splits": {},
     }
+    graph_metadata = _collect_graph_metadata(metadata)
+    if graph_metadata is not None:
+        payload["graph"] = graph_metadata
     for split_name, stats in split_stats.items():
         if not stats:
             continue
@@ -96,6 +100,29 @@ def _aggregate_split(stats: list[dict[str, float]]) -> dict[str, float]:
         "average_compression_ratio": average_compression_ratio,
         "batch_count": float(len(stats)),
     }
+
+
+def _collect_graph_metadata(metadata: dict[str, object] | None) -> dict[str, Any] | None:
+    graph_meta = (metadata or {}).get("graph")
+    if graph_meta is None:
+        return None
+    attrs = {
+        "directed_edge_count": "num_edges",
+        "dynamic_link_seed": "dynamic_link_seed",
+        "burst_params": "burst_params",
+        "edge_convention": "edge_convention",
+        "link_mask_shape": "link_mask_shape",
+    }
+    payload: dict[str, Any] = {}
+    for key, attr in attrs.items():
+        value = getattr(graph_meta, attr, None)
+        if value is None:
+            continue
+        if isinstance(value, tuple):
+            payload[key] = list(value)
+        else:
+            payload[key] = value
+    return payload or None
 
 
 def _graph_edge_count(config: dict[str, Any]) -> float | None:

@@ -47,6 +47,9 @@ def compute_class_metrics(
     """
     preds = torch.cat(all_preds)
     targets = torch.cat(all_targets)
+    valid = targets >= 0
+    preds = preds[valid]
+    targets = targets[valid]
 
     precision = []
     recall = []

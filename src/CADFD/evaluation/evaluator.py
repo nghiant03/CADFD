@@ -16,10 +16,14 @@ import torch.nn as nn
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, TensorDataset
 
+from CADFD.datasets.injected.graph import GraphMetadata
+from CADFD.datasets.injected.windowed import GraphWindowBatch
 from CADFD.logging import logger
 from CADFD.models.base import BaseModel
 from CADFD.schema import EvaluateConfig
 from CADFD.schema.types import FaultType
+
+from CADFD.training.graph_batch import GraphWindowDataset, collate_graph_batch
 
 from .communication import aggregate_communication_stats
 from .metrics import ClassMetrics, compute_class_metrics, confusion_matrix, macro_f1
@@ -198,6 +202,9 @@ class Evaluator:
         X: NDArray[np.float32],
         y: NDArray[np.int32],
         criterion: nn.Module | None = None,
+        metadata: dict[str, object] | None = None,
+        node_mask: NDArray[np.bool_] | None = None,
+        edge_mask: NDArray[np.bool_] | None = None,
     ) -> EvalResult:
         """Evaluate the model on the given data.
 
@@ -216,11 +223,9 @@ class Evaluator:
         if criterion is None:
             criterion = nn.CrossEntropyLoss()
 
-        loader = self._make_loader(X, y)
+        loader = self._make_loader(X, y, metadata=metadata, node_mask=node_mask, edge_mask=edge_mask)
 
-        num_classes = model(
-            torch.zeros(1, X.shape[1], X.shape[2], device=self.device)
-        ).size(-1)
+        num_classes = self._infer_num_classes(model, X, metadata)
 
         total_loss = 0.0
         correct = 0
@@ -230,25 +235,27 @@ class Evaluator:
         all_probs: list[torch.Tensor] = []
         communication_stats: list[dict[str, float]] = []
 
-        for X_batch, y_batch in loader:
-            X_batch = X_batch.to(self.device)
-            y_batch = y_batch.to(self.device)
+        for batch in loader:
+            model_input, y_batch, batch_node_mask, batch_size = self._prepare_batch(batch)
 
-            logits = model(X_batch)
-            loss = criterion(logits.reshape(-1, logits.size(-1)), y_batch.reshape(-1))
+            logits = model(model_input)
+            loss = self._masked_loss(criterion, logits, y_batch, batch_node_mask)
             stats = getattr(model, "last_communication_stats", None)
             if isinstance(stats, dict):
                 communication_stats.append({k: float(v) for k, v in stats.items()})
 
-            total_loss += loss.item() * X_batch.size(0)
+            total_loss += loss.item() * batch_size
             preds = logits.argmax(dim=-1)
             probs = torch.softmax(logits, dim=-1)
-            correct += (preds == y_batch).sum().item()
-            total += y_batch.numel()
+            valid_preds, valid_targets, valid_probs = self._valid_outputs(
+                preds, y_batch, probs, batch_node_mask
+            )
+            correct += (valid_preds == valid_targets).sum().item()
+            total += valid_targets.numel()
 
-            all_preds.append(preds.detach().cpu().reshape(-1))
-            all_targets.append(y_batch.detach().cpu().reshape(-1))
-            all_probs.append(probs.detach().cpu().reshape(-1, num_classes))
+            all_preds.append(valid_preds.detach().cpu())
+            all_targets.append(valid_targets.detach().cpu())
+            all_probs.append(valid_probs.detach().cpu())
 
         avg_loss = total_loss / max(len(loader.dataset), 1)  # type: ignore[arg-type]
         accuracy = correct / max(total, 1)
@@ -261,6 +268,7 @@ class Evaluator:
         communication_metrics = aggregate_communication_stats(
             {"test": communication_stats},
             model,
+            metadata=metadata,
         )
 
         return EvalResult(
@@ -314,9 +322,89 @@ class Evaluator:
         self,
         X: NDArray[np.float32],
         y: NDArray[np.int32],
-    ) -> DataLoader[tuple[torch.Tensor, ...]]:
+        metadata: dict[str, object] | None = None,
+        node_mask: NDArray[np.bool_] | None = None,
+        edge_mask: NDArray[np.bool_] | None = None,
+    ) -> DataLoader[object]:
         """Create a DataLoader from numpy arrays."""
+        graph_meta = (metadata or {}).get("graph")
+        if isinstance(graph_meta, GraphMetadata) and node_mask is not None and edge_mask is not None:
+            dataset = GraphWindowDataset(X, y, node_mask, edge_mask, graph_meta.edge_index)
+            return DataLoader(
+                dataset,
+                batch_size=self.config.batch_size,
+                shuffle=False,
+                collate_fn=collate_graph_batch,
+            )
         X_t = torch.tensor(X, dtype=torch.float32)
         y_t = torch.tensor(y, dtype=torch.long)
         dataset = TensorDataset(X_t, y_t)
         return DataLoader(dataset, batch_size=self.config.batch_size, shuffle=False)
+
+    def _infer_num_classes(
+        self,
+        model: BaseModel,
+        X: NDArray[np.float32],
+        metadata: dict[str, object] | None,
+    ) -> int:
+        graph_meta = (metadata or {}).get("graph")
+        if isinstance(graph_meta, GraphMetadata) and X.ndim == 4:
+            sample = GraphWindowBatch(
+                x=torch.zeros(1, X.shape[1], X.shape[2], X.shape[3], device=self.device),
+                y=torch.zeros(1, X.shape[1], X.shape[2], dtype=torch.long, device=self.device),
+                node_mask=torch.ones(1, X.shape[1], X.shape[2], dtype=torch.bool, device=self.device),
+                edge_index=torch.tensor(graph_meta.edge_index, dtype=torch.long, device=self.device),
+                edge_mask=torch.ones(1, X.shape[1], graph_meta.edge_index.shape[1], dtype=torch.bool, device=self.device),
+            )
+            return int(model(sample).size(-1))
+        return int(model(torch.zeros(1, X.shape[1], X.shape[2], device=self.device)).size(-1))
+
+    def _prepare_batch(
+        self,
+        batch: object,
+    ) -> tuple[torch.Tensor | GraphWindowBatch, torch.Tensor, torch.Tensor | None, int]:
+        if isinstance(batch, GraphWindowBatch):
+            graph_batch = GraphWindowBatch(
+                x=batch.x.to(self.device),
+                y=batch.y.to(self.device),
+                node_mask=batch.node_mask.to(self.device),
+                edge_index=batch.edge_index.to(self.device),
+                edge_mask=batch.edge_mask.to(self.device),
+            )
+            return graph_batch, graph_batch.y, graph_batch.node_mask, graph_batch.x.size(0)
+        if not isinstance(batch, (tuple, list)) or len(batch) != 2:
+            raise TypeError("Expected a tensor batch or GraphWindowBatch")
+        X_batch = batch[0].to(self.device)
+        y_batch = batch[1].to(self.device)
+        return X_batch, y_batch, None, X_batch.size(0)
+
+    @staticmethod
+    def _masked_loss(
+        criterion: nn.Module,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        node_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        flat_logits = logits.reshape(-1, logits.size(-1))
+        flat_targets = targets.reshape(-1)
+        if node_mask is None:
+            return criterion(flat_logits, flat_targets)
+        valid = node_mask.reshape(-1) & (flat_targets >= 0)
+        if not bool(valid.any()):
+            return flat_logits.sum() * 0.0
+        return criterion(flat_logits[valid], flat_targets[valid])
+
+    @staticmethod
+    def _valid_outputs(
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        probs: torch.Tensor,
+        node_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        flat_preds = preds.reshape(-1)
+        flat_targets = targets.reshape(-1)
+        flat_probs = probs.reshape(-1, probs.size(-1))
+        if node_mask is None:
+            return flat_preds, flat_targets, flat_probs
+        valid = node_mask.reshape(-1) & (flat_targets >= 0)
+        return flat_preds[valid], flat_targets[valid], flat_probs[valid]

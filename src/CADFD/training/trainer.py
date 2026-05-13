@@ -17,6 +17,8 @@ import torch.nn as nn
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, TensorDataset
 
+from CADFD.datasets.injected.graph import GraphMetadata
+from CADFD.datasets.injected.windowed import GraphWindowBatch
 from CADFD.logging import logger
 from CADFD.models.base import BaseModel
 from CADFD.schema import TrainConfig
@@ -27,6 +29,7 @@ from CADFD.training.callbacks import (
     TrainMetrics,
     TrainingCallback,
 )
+from CADFD.training.graph_batch import GraphWindowDataset, collate_graph_batch
 from CADFD.training.loss import FocalLoss
 from CADFD.training.oversampling import oversample_minority
 
@@ -147,6 +150,11 @@ class Trainer:
         y_train: NDArray[np.int32],
         X_val: NDArray[np.float32] | None = None,
         y_val: NDArray[np.int32] | None = None,
+        metadata: dict[str, object] | None = None,
+        node_mask_train: NDArray[np.bool_] | None = None,
+        edge_mask_train: NDArray[np.bool_] | None = None,
+        node_mask_val: NDArray[np.bool_] | None = None,
+        edge_mask_val: NDArray[np.bool_] | None = None,
     ) -> TrainResult:
         """Train the model.
 
@@ -179,9 +187,23 @@ class Trainer:
                 len(X_val),
             )
 
-        train_loader = self._make_loader(X_train, y_train, shuffle=True)
+        train_loader = self._make_loader(
+            X_train,
+            y_train,
+            shuffle=True,
+            metadata=metadata,
+            node_mask=node_mask_train,
+            edge_mask=edge_mask_train,
+        )
         val_loader = (
-            self._make_loader(X_val, y_val, shuffle=False)
+            self._make_loader(
+                X_val,
+                y_val,
+                shuffle=False,
+                metadata=metadata,
+                node_mask=node_mask_val,
+                edge_mask=edge_mask_val,
+            )
             if X_val is not None and y_val is not None
             else None
         )
@@ -193,9 +215,7 @@ class Trainer:
 
         model = model.to(self.device)
 
-        num_classes = model(
-            torch.zeros(1, X_train.shape[1], X_train.shape[2], device=self.device)
-        ).size(-1)
+        num_classes = self._infer_num_classes(model, X_train, metadata)
         logger.info("Using device: {}", self.device)
         criterion = build_loss(self.config, self.device)
         optimizer = torch.optim.Adam(model.parameters(), lr=self.config.learning_rate)
@@ -340,11 +360,20 @@ class Trainer:
         X: NDArray[np.float32],
         y: NDArray[np.int32],
         shuffle: bool,
-    ) -> DataLoader[tuple[torch.Tensor, ...]]:
+        metadata: dict[str, object] | None = None,
+        node_mask: NDArray[np.bool_] | None = None,
+        edge_mask: NDArray[np.bool_] | None = None,
+    ) -> DataLoader[object]:
         """Create a DataLoader from numpy arrays."""
-        X_t = torch.tensor(X, dtype=torch.float32)
-        y_t = torch.tensor(y, dtype=torch.long)
-        dataset = TensorDataset(X_t, y_t)
+        graph_meta = (metadata or {}).get("graph")
+        if isinstance(graph_meta, GraphMetadata) and node_mask is not None and edge_mask is not None:
+            dataset = GraphWindowDataset(X, y, node_mask, edge_mask, graph_meta.edge_index)
+            collate_fn = collate_graph_batch
+        else:
+            X_t = torch.tensor(X, dtype=torch.float32)
+            y_t = torch.tensor(y, dtype=torch.long)
+            dataset = TensorDataset(X_t, y_t)
+            collate_fn = None
         generator = torch.Generator()
         generator.manual_seed(self.config.seed)
         return DataLoader(
@@ -352,12 +381,31 @@ class Trainer:
             batch_size=self.config.batch_size,
             shuffle=shuffle,
             generator=generator,
+            collate_fn=collate_fn,
         )
+
+    def _infer_num_classes(
+        self,
+        model: BaseModel,
+        X_train: NDArray[np.float32],
+        metadata: dict[str, object] | None,
+    ) -> int:
+        graph_meta = (metadata or {}).get("graph")
+        if isinstance(graph_meta, GraphMetadata) and X_train.ndim == 4:
+            sample = GraphWindowBatch(
+                x=torch.zeros(1, X_train.shape[1], X_train.shape[2], X_train.shape[3], device=self.device),
+                y=torch.zeros(1, X_train.shape[1], X_train.shape[2], dtype=torch.long, device=self.device),
+                node_mask=torch.ones(1, X_train.shape[1], X_train.shape[2], dtype=torch.bool, device=self.device),
+                edge_index=torch.tensor(graph_meta.edge_index, dtype=torch.long, device=self.device),
+                edge_mask=torch.ones(1, X_train.shape[1], graph_meta.edge_index.shape[1], dtype=torch.bool, device=self.device),
+            )
+            return int(model(sample).size(-1))
+        return int(model(torch.zeros(1, X_train.shape[1], X_train.shape[2], device=self.device)).size(-1))
 
     def _train_epoch(
         self,
         model: BaseModel,
-        loader: DataLoader[tuple[torch.Tensor, ...]],
+        loader: DataLoader[object],
         criterion: nn.Module,
         optimizer: torch.optim.Optimizer,
     ) -> tuple[float, float, tuple[list[torch.Tensor], list[torch.Tensor]]]:
@@ -373,29 +421,77 @@ class Trainer:
         all_preds: list[torch.Tensor] = []
         all_targets: list[torch.Tensor] = []
 
-        for X_batch, y_batch in loader:
-            X_batch = X_batch.to(self.device)
-            y_batch = y_batch.to(self.device)
+        for batch in loader:
+            model_input, y_batch, node_mask, batch_size = self._prepare_batch(batch)
 
             optimizer.zero_grad()
-            logits = model(X_batch)
+            logits = model(model_input)
 
-            loss = criterion(logits.reshape(-1, logits.size(-1)), y_batch.reshape(-1))
+            loss = self._masked_loss(criterion, logits, y_batch, node_mask)
             loss = self._add_auxiliary_loss(model, loss)
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item() * X_batch.size(0)
+            total_loss += loss.item() * batch_size
             preds = logits.argmax(dim=-1)
-            correct += (preds == y_batch).sum().item()
-            total += y_batch.numel()
+            valid_preds, valid_targets = self._valid_predictions(preds, y_batch, node_mask)
+            correct += (valid_preds == valid_targets).sum().item()
+            total += valid_targets.numel()
 
-            all_preds.append(preds.detach().cpu().reshape(-1))
-            all_targets.append(y_batch.detach().cpu().reshape(-1))
+            all_preds.append(valid_preds.detach().cpu())
+            all_targets.append(valid_targets.detach().cpu())
 
         avg_loss = total_loss / max(len(loader.dataset), 1)  # type: ignore[arg-type]
         accuracy = correct / max(total, 1)
         return avg_loss, accuracy, (all_preds, all_targets)
+
+    def _prepare_batch(
+        self,
+        batch: object,
+    ) -> tuple[torch.Tensor | GraphWindowBatch, torch.Tensor, torch.Tensor | None, int]:
+        if isinstance(batch, GraphWindowBatch):
+            graph_batch = GraphWindowBatch(
+                x=batch.x.to(self.device),
+                y=batch.y.to(self.device),
+                node_mask=batch.node_mask.to(self.device),
+                edge_index=batch.edge_index.to(self.device),
+                edge_mask=batch.edge_mask.to(self.device),
+            )
+            return graph_batch, graph_batch.y, graph_batch.node_mask, graph_batch.x.size(0)
+        if not isinstance(batch, (tuple, list)) or len(batch) != 2:
+            raise TypeError("Expected a tensor batch or GraphWindowBatch")
+        X_batch = batch[0].to(self.device)
+        y_batch = batch[1].to(self.device)
+        return X_batch, y_batch, None, X_batch.size(0)
+
+    @staticmethod
+    def _masked_loss(
+        criterion: nn.Module,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        node_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        flat_logits = logits.reshape(-1, logits.size(-1))
+        flat_targets = targets.reshape(-1)
+        if node_mask is None:
+            return criterion(flat_logits, flat_targets)
+        valid = node_mask.reshape(-1) & (flat_targets >= 0)
+        if not bool(valid.any()):
+            return flat_logits.sum() * 0.0
+        return criterion(flat_logits[valid], flat_targets[valid])
+
+    @staticmethod
+    def _valid_predictions(
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+        node_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        flat_preds = preds.reshape(-1)
+        flat_targets = targets.reshape(-1)
+        if node_mask is None:
+            return flat_preds, flat_targets
+        valid = node_mask.reshape(-1) & (flat_targets >= 0)
+        return flat_preds[valid], flat_targets[valid]
 
     def _add_auxiliary_loss(
         self,
@@ -426,7 +522,7 @@ class Trainer:
     def _eval_epoch(
         self,
         model: BaseModel,
-        loader: DataLoader[tuple[torch.Tensor, ...]],
+        loader: DataLoader[object],
         criterion: nn.Module,
     ) -> tuple[float, float, tuple[list[torch.Tensor], list[torch.Tensor]]]:
         """Run one evaluation epoch.
@@ -441,21 +537,21 @@ class Trainer:
         all_preds: list[torch.Tensor] = []
         all_targets: list[torch.Tensor] = []
 
-        for X_batch, y_batch in loader:
-            X_batch = X_batch.to(self.device)
-            y_batch = y_batch.to(self.device)
+        for batch in loader:
+            model_input, y_batch, node_mask, batch_size = self._prepare_batch(batch)
 
-            logits = model(X_batch)
-            loss = criterion(logits.reshape(-1, logits.size(-1)), y_batch.reshape(-1))
+            logits = model(model_input)
+            loss = self._masked_loss(criterion, logits, y_batch, node_mask)
             loss = self._add_auxiliary_loss(model, loss)
 
-            total_loss += loss.item() * X_batch.size(0)
+            total_loss += loss.item() * batch_size
             preds = logits.argmax(dim=-1)
-            correct += (preds == y_batch).sum().item()
-            total += y_batch.numel()
+            valid_preds, valid_targets = self._valid_predictions(preds, y_batch, node_mask)
+            correct += (valid_preds == valid_targets).sum().item()
+            total += valid_targets.numel()
 
-            all_preds.append(preds.detach().cpu().reshape(-1))
-            all_targets.append(y_batch.detach().cpu().reshape(-1))
+            all_preds.append(valid_preds.detach().cpu())
+            all_targets.append(valid_targets.detach().cpu())
 
         avg_loss = total_loss / max(len(loader.dataset), 1)  # type: ignore[arg-type]
         accuracy = correct / max(total, 1)
