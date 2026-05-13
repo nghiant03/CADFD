@@ -16,12 +16,12 @@ import torch.nn as nn
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, TensorDataset
 
+from CADFD.batch import GraphWindowBatch
 from CADFD.datasets.injected.graph import GraphMetadata
-from CADFD.datasets.injected.windowed import GraphWindowBatch
 from CADFD.logging import logger
 from CADFD.models.base import BaseModel
 from CADFD.schema import EvaluateConfig
-from CADFD.schema.types import FaultType
+from CADFD.schema.fault import FaultType
 from CADFD.training.graph_batch import GraphWindowDataset, collate_graph_batch
 
 from .communication import aggregate_communication_stats

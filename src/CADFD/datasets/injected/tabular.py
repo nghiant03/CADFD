@@ -24,8 +24,9 @@ from CADFD.datasets.injected.windowed import (
     validate_features,
 )
 from CADFD.schema import InjectionConfig
+from CADFD.schema.fault import FaultType
 from CADFD.schema.manifest import DatasetInfo
-from CADFD.schema.types import FaultType, WindowConfig
+from CADFD.schema.window import WindowConfig
 from CADFD.utils import sha256_file
 
 

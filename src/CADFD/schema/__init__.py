@@ -10,6 +10,7 @@ from CADFD.schema.config import (
     OptimizeConfig,
     TrainConfig,
 )
+from CADFD.schema.fault import FaultConfig, FaultType, MarkovConfig
 from CADFD.schema.manifest import (
     DatasetInfo,
     EnvInfo,
@@ -17,7 +18,7 @@ from CADFD.schema.manifest import (
     RunManifest,
     Timing,
 )
-from CADFD.schema.types import FaultConfig, FaultType, MarkovConfig, WindowConfig
+from CADFD.schema.window import WindowConfig
 
 __all__ = [
     "DatasetInfo",

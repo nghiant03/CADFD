@@ -22,7 +22,8 @@ This repository is a research project for fault diagnosis analysis.
 
 ```
 src/CADFD/
-├── schema/            # Pydantic config models: FaultType, FaultConfig, MarkovConfig, WindowConfig, InjectionConfig
+├── schema/            # Pydantic config and manifest schemas split by domain
+├── batch.py           # Runtime batch contracts shared by training/evaluation/spatial models
 ├── cli/               # Typer CLI with subcommands (inject, prepare, train, evaluate)
 ├── injection/         # Fault injection: Markov generator, fault injectors, registry
 ├── datasets/          # Dataset loaders and injected containers
@@ -52,17 +53,17 @@ notebooks/             # Jupyter notebooks for analysis
 
 ## Schema Module (`schema/`)
 
-The `schema/` module contains Pydantic configuration models used by injection, training, and evaluation:
+The `schema/` module contains Pydantic configuration and artifact schemas used by injection, training, evaluation, and reproducibility manifests:
 
-- `FaultType` - Enum: NORMAL=0, SPIKE=1, DRIFT=2, STUCK=3
-- `FaultConfig` - Configuration for a single fault type (transition prob, duration, params)
-- `MarkovConfig` - Markov chain configuration (list of fault configs, seed)
-- `WindowConfig` - Sliding window parameters (size, strides, train ratio, val ratio)
-- `InjectionConfig` - Complete injection pipeline config (serializable as metadata)
-- `TrainConfig` - Training configuration (model, epochs, batch_size, learning_rate, use_focal_loss, focal_gamma, focal_alpha, oversample, oversample_ratio, features, seed, model_kwargs). Supports `from_yaml(path)` for YAML config files.
-- `EvaluateConfig` - Evaluation configuration (batch_size)
-- `OptimizeConfig` - Optuna HPO configuration (model, n_trials, timeout, epochs, metric, sampler, pruner, startup_trials, study_name, storage, direction, load_if_exists, features, seed). Provides `resolved_study_name()` and `resolved_direction()` helpers.
-- `RunManifest` / `EnvInfo` / `GitInfo` / `DatasetInfo` / `Timing` (`schema/manifest.py`) - Pure pydantic models for the per-run reproducibility manifest written as `manifest.json`. Runtime collectors live in `CADFD.utils`; `DatasetInfo` is produced by `InjectedDataset.describe(path)`.
+- `schema/fault.py`: `FaultType`, `FaultConfig`, `MarkovConfig`.
+- `schema/window.py`: `WindowConfig`.
+- `schema/config.py`: `InjectionConfig`, `TrainConfig`, `EvaluateConfig`, `OptimizeConfig`.
+- `schema/manifest.py`: `RunManifest`, `EnvInfo`, `GitInfo`, `DatasetInfo`, `Timing`.
+- `schema/types.py`: backward-compatible re-export shim only; prefer importing from `schema.fault` or `schema.window` in new code.
+
+## Runtime Batch Contract (`batch.py`)
+
+- `GraphWindowBatch` - Native PyTorch runtime batch for graph-aligned windows: `x`, `y`, `node_mask`, `edge_index`, and `edge_mask`. Used by DataLoader collation, `Trainer`, `Evaluator`, ST-GCN, and CESTA. It is not a schema/config object and should not live under `schema/` or dataset windowing utilities.
 
 ## Utilities (`utils.py`)
 
@@ -92,7 +93,7 @@ runs/<model>/<utc_ts>_<model>_seed<seed>_<shortsha>/
 
 ## Configuration Design Pattern
 
-**Single Source of Truth (SSOT)**: All default values live exclusively in Pydantic schema classes (`schema/config.py`, `schema/types.py`). CLI modules use `None` as default and fall back to schema defaults.
+**Single Source of Truth (SSOT)**: All default values live exclusively in Pydantic schema classes (`schema/config.py`, `schema/fault.py`, `schema/window.py`). CLI modules use `None` as default and fall back to schema defaults.
 
 **Pattern**:
 ```python

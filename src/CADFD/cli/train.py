@@ -19,7 +19,7 @@ from CADFD.schema import (
     Timing,
     TrainConfig,
 )
-from CADFD.schema.types import FaultType
+from CADFD.schema.fault import FaultType
 from CADFD.training import (
     CheckpointCallback,
     EarlyStoppingCallback,

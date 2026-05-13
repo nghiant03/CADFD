@@ -17,8 +17,8 @@ import torch.nn as nn
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, TensorDataset
 
+from CADFD.batch import GraphWindowBatch
 from CADFD.datasets.injected.graph import GraphMetadata
-from CADFD.datasets.injected.windowed import GraphWindowBatch
 from CADFD.evaluation.metrics import ClassMetrics, compute_class_metrics, macro_f1
 from CADFD.logging import logger
 from CADFD.models.base import BaseModel
@@ -312,7 +312,7 @@ class Trainer:
     @staticmethod
     def _log_class_metrics(split_name: str, cm: ClassMetrics) -> None:
         """Log per-class metrics table."""
-        from CADFD.schema.types import FaultType
+        from CADFD.schema.fault import FaultType
 
         names = FaultType.names()
         logger.info("--- {} Per-Class Metrics ---", split_name)

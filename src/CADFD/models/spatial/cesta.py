@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from CADFD.datasets.injected.windowed import GraphWindowBatch
+from CADFD.batch import GraphWindowBatch
 from CADFD.models.base import BaseModel
 
 CommunicationMode = Literal["none", "dense", "gumbel_request"]

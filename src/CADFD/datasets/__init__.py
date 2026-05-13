@@ -8,6 +8,7 @@ Sub-packages
 - ``injected`` — Post-injection containers, graph topology, and windowing.
 """
 
+from CADFD.batch import GraphWindowBatch
 from CADFD.datasets.injected.graph import (
     GraphDataset,
     GraphMetadata,
@@ -18,7 +19,7 @@ from CADFD.datasets.injected.graph import (
 )
 from CADFD.datasets.injected.loading import load_dataset
 from CADFD.datasets.injected.tabular import InjectedDataset
-from CADFD.datasets.injected.windowed import GraphWindowBatch, WindowedSplits
+from CADFD.datasets.injected.windowed import WindowedSplits
 from CADFD.datasets.raw import get_dataset, list_datasets
 from CADFD.datasets.raw.base import BaseDataset
 from CADFD.datasets.raw.intel_lab import IntelLabDataset

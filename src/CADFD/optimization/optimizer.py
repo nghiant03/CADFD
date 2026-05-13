@@ -16,7 +16,7 @@ from CADFD.optimization.search_spaces import (
     suggest_train_hyperparams,
 )
 from CADFD.schema import OptimizeConfig, TrainConfig
-from CADFD.schema.types import FaultType
+from CADFD.schema.fault import FaultType
 from CADFD.training import LoggingCallback, Trainer, TrainingCallback
 from CADFD.training.callbacks import TrainMetrics
 

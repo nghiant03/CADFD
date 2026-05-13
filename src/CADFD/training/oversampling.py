@@ -8,7 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from CADFD.logging import logger
-from CADFD.schema.types import FaultType
+from CADFD.schema.fault import FaultType
 
 
 def oversample_minority(

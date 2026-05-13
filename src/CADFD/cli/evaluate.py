@@ -18,7 +18,7 @@ from CADFD.schema import (
     RunManifest,
     Timing,
 )
-from CADFD.schema.types import FaultType
+from CADFD.schema.fault import FaultType
 from CADFD.utils import (
     collect_env_info,
     collect_git_info,

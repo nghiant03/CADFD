@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv
 
-from CADFD.datasets.injected.windowed import GraphWindowBatch
+from CADFD.batch import GraphWindowBatch
 from CADFD.models.base import BaseModel
 
 

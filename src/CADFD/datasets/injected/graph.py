@@ -17,7 +17,7 @@ from CADFD.datasets.injected.windowed import (
     validate_features,
 )
 from CADFD.logging import logger
-from CADFD.schema.types import WindowConfig
+from CADFD.schema.window import WindowConfig
 
 
 @dataclass

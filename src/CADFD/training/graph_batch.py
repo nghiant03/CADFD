@@ -7,7 +7,7 @@ import torch
 from numpy.typing import NDArray
 from torch.utils.data import Dataset
 
-from CADFD.datasets.injected.windowed import GraphWindowBatch
+from CADFD.batch import GraphWindowBatch
 
 
 class GraphWindowDataset(Dataset[GraphWindowBatch]):

@@ -10,19 +10,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-import torch
 from numpy.typing import NDArray
 
-from CADFD.schema.types import WindowConfig
-
-
-@dataclass
-class GraphWindowBatch:
-    x: torch.Tensor
-    y: torch.Tensor
-    node_mask: torch.Tensor
-    edge_index: torch.Tensor
-    edge_mask: torch.Tensor
+from CADFD.schema.window import WindowConfig
 
 
 @dataclass
