@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from CADFD.datasets.injected.windowed import GraphWindowBatch
 from CADFD.models.base import BaseModel
 
 CommunicationMode = Literal["none", "dense", "gumbel_request"]
@@ -155,9 +156,20 @@ class CESTAClassifier(BaseModel):
             raise ValueError("gumbel_temperature must be positive")
         self.gumbel_temperature = tau
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch, seq_len, _ = x.shape
-        local_input = x.view(batch, seq_len, self.num_nodes, self.features_per_node)
+    def forward(self, x: torch.Tensor | GraphWindowBatch) -> torch.Tensor:
+        edge_index: torch.Tensor | None = None
+        edge_mask: torch.Tensor | None = None
+        if isinstance(x, GraphWindowBatch):
+            edge_index = x.edge_index
+            edge_mask = x.edge_mask
+            x = x.x
+
+        if x.ndim == 4:
+            batch, seq_len, _, _ = x.shape
+            local_input = x
+        else:
+            batch, seq_len, _ = x.shape
+            local_input = x.view(batch, seq_len, self.num_nodes, self.features_per_node)
         local_input = local_input.permute(0, 2, 1, 3).reshape(
             batch * self.num_nodes, seq_len, self.features_per_node
         )
@@ -169,10 +181,13 @@ class CESTAClassifier(BaseModel):
         local_hidden = local_hidden.permute(0, 2, 1, 3)
 
         if self.communication_mode == "dense":
-            neighbor_context = self._dense_neighbor_context(local_hidden)
+            neighbor_context, possible_mask = self._dense_neighbor_context(
+                local_hidden, edge_index=edge_index, edge_mask=edge_mask
+            )
             fused = self.fusion(torch.cat([local_hidden, neighbor_context], dim=-1))
             hidden = self.dropout(local_hidden + fused)
             self._last_communication_stats = self._dense_communication_stats(
+                possible_mask=possible_mask,
                 batch=batch,
                 seq_len=seq_len,
                 device=x.device,
@@ -183,7 +198,9 @@ class CESTAClassifier(BaseModel):
             self._gate_entropy = None
         elif self.communication_mode == "gumbel_request":
             neighbor_context, request_mask, possible_mask, soft_gate_probs = (
-                self._gumbel_neighbor_context(local_hidden)
+                self._gumbel_neighbor_context(
+                    local_hidden, edge_index=edge_index, edge_mask=edge_mask
+                )
             )
             fused = self.fusion(torch.cat([local_hidden, neighbor_context], dim=-1))
             hidden = self.dropout(local_hidden + fused)
@@ -205,19 +222,26 @@ class CESTAClassifier(BaseModel):
 
         return self.classifier(hidden)
 
-    def _dense_neighbor_context(self, local_hidden: torch.Tensor) -> torch.Tensor:
-        adjacency = cast(torch.Tensor, self.adjacency).to(local_hidden.device)
-        message_mask = adjacency.clone()
-        message_mask.fill_diagonal_(0.0)
-        return self._gat_aggregate(local_hidden, message_mask)
+    def _dense_neighbor_context(
+        self,
+        local_hidden: torch.Tensor,
+        edge_index: torch.Tensor | None = None,
+        edge_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        possible_mask = self._possible_message_mask(
+            local_hidden, edge_index=edge_index, edge_mask=edge_mask
+        )
+        return self._gat_aggregate(local_hidden, possible_mask), possible_mask
 
     def _gumbel_neighbor_context(
         self,
         local_hidden: torch.Tensor,
+        edge_index: torch.Tensor | None = None,
+        edge_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        adjacency = cast(torch.Tensor, self.adjacency).to(local_hidden.device)
-        possible_mask = adjacency.clone()
-        possible_mask.fill_diagonal_(0.0)
+        possible_mask = self._possible_message_mask(
+            local_hidden, edge_index=edge_index, edge_mask=edge_mask
+        )
         receiver_features = self._receiver_gate_features(local_hidden)
         gate_logits = self.request_gate(receiver_features)
 
@@ -236,9 +260,7 @@ class CESTAClassifier(BaseModel):
             )
 
         receiver_requests = gate_probs[..., 1]
-        request_mask = receiver_requests.unsqueeze(-1) * possible_mask.view(
-            1, 1, self.num_nodes, self.num_nodes
-        )
+        request_mask = receiver_requests.unsqueeze(-1) * possible_mask
         neighbor_context = self._gat_aggregate(local_hidden, request_mask)
         return neighbor_context, request_mask, possible_mask, soft_gate_probs
 
@@ -284,6 +306,27 @@ class CESTAClassifier(BaseModel):
         uncertainty_proxy = local_hidden.detach().norm(dim=-1, keepdim=True)
         return torch.cat([local_hidden, uncertainty_proxy], dim=-1)
 
+    def _possible_message_mask(
+        self,
+        local_hidden: torch.Tensor,
+        edge_index: torch.Tensor | None = None,
+        edge_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        B, T, N, _ = local_hidden.shape
+        device = local_hidden.device
+        if edge_index is None or edge_mask is None:
+            adjacency = cast(torch.Tensor, self.adjacency).to(device)
+            message_mask = adjacency.clone()
+            message_mask.fill_diagonal_(0.0)
+            return message_mask.view(1, 1, N, N).expand(B, T, N, N)
+
+        message_mask = torch.zeros(B, T, N, N, dtype=local_hidden.dtype, device=device)
+        sender = edge_index[0].to(device)
+        receiver = edge_index[1].to(device)
+        active = edge_mask.to(device=device, dtype=local_hidden.dtype)
+        message_mask[:, :, receiver, sender] = active
+        return message_mask
+
     def _zero_communication_stats(self) -> CommunicationStats:
         return {
             "active_request_ratio": 0.0,
@@ -297,21 +340,29 @@ class CESTAClassifier(BaseModel):
 
     def _dense_communication_stats(
         self,
+        possible_mask: torch.Tensor,
         batch: int,
         seq_len: int,
         device: torch.device,
     ) -> CommunicationStats:
-        possible_edges = self._possible_edge_count(device=device)
-        requested_edges = possible_edges * batch * seq_len
+        if possible_mask.dim() == 2:
+            possible_edges = torch.tensor(
+                float(possible_mask.sum().item() * batch * seq_len),
+                dtype=torch.float32,
+                device=device,
+            )
+        else:
+            possible_edges = possible_mask.sum()
+        requested_edges = possible_edges
         transmitted_bits = requested_edges * self.hidden_size * self.precision_bits
         return {
-            "active_request_ratio": 1.0 if possible_edges > 0 else 0.0,
-            "requested_edge_count": float(requested_edges),
-            "possible_edge_count": float(possible_edges * batch * seq_len),
-            "transmitted_bits_estimate": float(transmitted_bits),
-            "full_embedding_message_count": float(requested_edges),
+            "active_request_ratio": 1.0 if possible_edges.detach().cpu().item() > 0 else 0.0,
+            "requested_edge_count": float(requested_edges.detach().cpu().item()),
+            "possible_edge_count": float(possible_edges.detach().cpu().item()),
+            "transmitted_bits_estimate": float(transmitted_bits.detach().cpu().item()),
+            "full_embedding_message_count": float(requested_edges.detach().cpu().item()),
             "compressed_message_count": 0.0,
-            "average_compression_ratio": 1.0 if possible_edges > 0 else 0.0,
+            "average_compression_ratio": 1.0 if possible_edges.detach().cpu().item() > 0 else 0.0,
         }
 
     def _request_communication_stats(
@@ -319,8 +370,7 @@ class CESTAClassifier(BaseModel):
         request_mask: torch.Tensor,
         possible_mask: torch.Tensor,
     ) -> CommunicationStats:
-        batch, seq_len, _, _ = request_mask.shape
-        possible_edges = possible_mask.sum() * batch * seq_len
+        possible_edges = possible_mask.sum()
         requested_edges = request_mask.sum()
         active_ratio = requested_edges / possible_edges.clamp_min(1.0)
         transmitted_bits = requested_edges * self.hidden_size * self.precision_bits

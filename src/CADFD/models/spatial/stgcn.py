@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv
 
+from CADFD.datasets.injected.windowed import GraphWindowBatch
 from CADFD.models.base import BaseModel
 
 
@@ -103,6 +104,7 @@ class STConvBlock(nn.Module):
         self,
         x: torch.Tensor,
         edge_index: torch.Tensor,
+        edge_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass.
 
@@ -120,13 +122,30 @@ class STConvBlock(nn.Module):
         batch, C, N, T = h.shape
         h = h.permute(0, 3, 2, 1).reshape(batch * T, N, C)
 
-        offsets = (
-            torch.arange(batch * T, device=h.device).unsqueeze(1) * N
-        )
-        batched_ei = edge_index.unsqueeze(0) + offsets.unsqueeze(1)
-        batched_ei = batched_ei.reshape(2, -1)
-
         h = h.reshape(batch * T * N, C)
+        if edge_mask is None:
+            offsets = (
+                torch.arange(batch * T, device=h.device).unsqueeze(1) * N
+            )
+            batched_ei = edge_index.unsqueeze(0) + offsets.unsqueeze(1)
+            batched_ei = batched_ei.reshape(2, -1)
+        else:
+            edge_index = edge_index.to(h.device)
+            active = edge_mask.reshape(batch * T, -1)
+            src_parts: list[torch.Tensor] = []
+            dst_parts: list[torch.Tensor] = []
+            offsets = torch.arange(batch * T, device=h.device) * N
+            for graph_idx in range(batch * T):
+                graph_edges = edge_index[:, active[graph_idx]]
+                if graph_edges.numel() == 0:
+                    continue
+                src_parts.append(graph_edges[0] + offsets[graph_idx])
+                dst_parts.append(graph_edges[1] + offsets[graph_idx])
+            if src_parts:
+                batched_ei = torch.stack([torch.cat(src_parts), torch.cat(dst_parts)])
+            else:
+                batched_ei = torch.empty((2, 0), dtype=torch.long, device=h.device)
+
         h = self.gcn(h, batched_ei)
         h = self.relu(h)
 
@@ -224,7 +243,7 @@ class STGCNClassifier(BaseModel):
     def name(self) -> str:
         return "stgcn"
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor | GraphWindowBatch) -> torch.Tensor:
         """Forward pass for per-node many-to-many classification.
 
         Args:
@@ -234,17 +253,23 @@ class STGCNClassifier(BaseModel):
         Returns:
             Logits tensor ``(batch, seq_len, num_nodes, num_classes)``.
         """
-        batch, seq_len, _ = x.shape
-        N = self.num_nodes
-        F_in = self.features_per_node
+        edge_mask: torch.Tensor | None = None
+        edge_index: torch.Tensor = self.edge_index  # type: ignore[assignment]
+        if isinstance(x, GraphWindowBatch):
+            edge_mask = x.edge_mask
+            edge_index = x.edge_index
+            x = x.x
 
-        h = x.view(batch, seq_len, N, F_in)
+        if x.ndim == 4:
+            h = x
+        else:
+            batch, seq_len, _ = x.shape
+            h = x.view(batch, seq_len, self.num_nodes, self.features_per_node)
+
         h = h.permute(0, 3, 2, 1)
 
-        edge_index: torch.Tensor = self.edge_index  # type: ignore[assignment]
-
         for block in self.blocks:
-            h = block(h, edge_index)
+            h = block(h, edge_index, edge_mask=edge_mask)
 
         h = h.permute(0, 3, 2, 1)
 
