@@ -11,9 +11,24 @@ from loguru import logger
 logger.remove()
 
 # Add custom handler with pretty formatting
+DEFAULT_FORMAT = (
+    "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<level>{message}</level>"
+)
+VERBOSE_FORMAT = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<level>{message}</level>"
+)
+COMPACT_FORMAT = (
+    "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
+    "<level>{message}</level>"
+)
+
 logger.add(
     sys.stderr,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    format=DEFAULT_FORMAT,
     level="INFO",
     colorize=True,
 )
@@ -28,10 +43,7 @@ def configure_logging(level: str = "INFO", verbose: bool = False) -> None:
     """
     logger.remove()
 
-    if verbose:
-        fmt = "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
-    else:
-        fmt = "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+    fmt = VERBOSE_FORMAT if verbose else COMPACT_FORMAT
 
     logger.add(
         sys.stderr,

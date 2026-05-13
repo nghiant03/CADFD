@@ -102,13 +102,16 @@ def collect_env_info(device: Any | None = None) -> EnvInfo:
         idx = dev.index if dev.index is not None else torch.cuda.current_device()
         device_name = torch.cuda.get_device_name(idx)
 
+    torch_version_module = getattr(torch, "version", None)
+    cuda_version = getattr(torch_version_module, "cuda", None)
+
     return EnvInfo(
         python_version=sys.version.split()[0],
         platform=platform.platform(),
         hostname=socket.gethostname(),
         torch_version=torch.__version__,
         cuda_available=torch.cuda.is_available(),
-        cuda_version=torch.version.cuda,
+        cuda_version=cuda_version,
         device=str(dev),
         device_name=device_name,
         cadfd_version=_cadfd_version(),

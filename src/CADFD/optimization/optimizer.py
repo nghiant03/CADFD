@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +10,7 @@ import optuna
 from CADFD.datasets import load_dataset
 from CADFD.logging import logger
 from CADFD.models import create_model, get_model_class
+from CADFD.models.base import BaseModel
 from CADFD.optimization.search_spaces import (
     get_search_space,
     suggest_train_hyperparams,
@@ -19,16 +19,6 @@ from CADFD.schema import OptimizeConfig, TrainConfig
 from CADFD.schema.types import FaultType
 from CADFD.training import LoggingCallback, Trainer, TrainingCallback
 from CADFD.training.callbacks import TrainMetrics
-from CADFD.models.base import BaseModel
-
-
-@dataclass
-class TrialResult:
-    """Outcome of a single Optuna trial."""
-
-    value: float
-    params: dict[str, Any]
-    state: str
 
 
 class _OptunaPruneCallback(TrainingCallback):
@@ -185,6 +175,11 @@ class Optimizer:
             y_train=prepared.y_train,
             X_val=prepared.X_val,
             y_val=prepared.y_val,
+            metadata=prepared.metadata,
+            node_mask_train=prepared.node_mask_train,
+            edge_mask_train=prepared.edge_mask_train,
+            node_mask_val=prepared.node_mask_val,
+            edge_mask_val=prepared.edge_mask_val,
         )
 
         if prune_cb.pruned:

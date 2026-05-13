@@ -9,7 +9,7 @@ This repository is a research project for fault diagnosis analysis.
 
 ## Code Quality
 
-- Use **ruff** for linting and formatting `.py` source files.
+- Use **ruff** for linting and formatting `.py` source files. Ruff is configured in `pyproject.toml` with line length 150 and import sorting enabled.
 - Use **pyright** for type checking `.py` source files.
 - Do **not** use `TYPE_CHECKING` from `typing`. Use `from __future__ import annotations` and lazy imports inside functions instead.
 - When changing a function, file, class, or variable, **always reconsider whether its name still accurately describes its purpose**. Rename if the name no longer fits.

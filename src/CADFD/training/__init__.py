@@ -9,12 +9,12 @@ from CADFD.training.callbacks import (
     EarlyStoppingCallback,
     HistoryCallback,
     LoggingCallback,
-    TrainMetrics,
     TrainingCallback,
+    TrainMetrics,
 )
 from CADFD.training.loss import FocalLoss
 from CADFD.training.oversampling import oversample_minority
-from CADFD.training.trainer import TrainResult, Trainer, build_loss
+from CADFD.training.trainer import Trainer, TrainResult, build_loss
 
 __all__ = [
     "CheckpointCallback",

@@ -22,7 +22,6 @@ from CADFD.logging import logger
 from CADFD.models.base import BaseModel
 from CADFD.schema import EvaluateConfig
 from CADFD.schema.types import FaultType
-
 from CADFD.training.graph_batch import GraphWindowDataset, collate_graph_batch
 
 from .communication import aggregate_communication_stats

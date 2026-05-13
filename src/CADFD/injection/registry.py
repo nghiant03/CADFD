@@ -4,13 +4,13 @@ Provides a central registry for fault injection strategies,
 allowing new fault types to be added dynamically.
 """
 
-from CADFD.schema import FaultType
 from CADFD.injection.base import BaseFaultInjector
 from CADFD.injection.faults import (
     DriftFaultInjector,
     SpikeFaultInjector,
     StuckFaultInjector,
 )
+from CADFD.schema import FaultType
 
 _REGISTRY: dict[FaultType, type[BaseFaultInjector]] = {}
 

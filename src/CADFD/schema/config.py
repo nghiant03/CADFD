@@ -74,15 +74,18 @@ class InjectionConfig(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "InjectionConfig":
         """Reconstruct from dictionary."""
+        defaults = cls()
         return cls(
             markov=MarkovConfig.from_dict(data.get("markov", {})),
             window=WindowConfig.from_dict(data.get("window", {})),
-            resample_freq=data.get("resample_freq", "30s"),
-            target_features=data.get("target_features", ["temp"]),
-            all_features=data.get("all_features", ["temp", "humid", "light", "volt"]),
-            interpolation_method=data.get("interpolation_method", "linear"),
-            group_column=data.get("group_column", "moteid"),
-            seed=data.get("seed"),
+            resample_freq=data.get("resample_freq", defaults.resample_freq),
+            target_features=data.get("target_features", defaults.target_features),
+            all_features=data.get("all_features", defaults.all_features),
+            interpolation_method=data.get(
+                "interpolation_method", defaults.interpolation_method
+            ),
+            group_column=data.get("group_column", defaults.group_column),
+            seed=data.get("seed", defaults.seed),
         )
 
     @classmethod

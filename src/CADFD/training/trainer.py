@@ -19,15 +19,15 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from CADFD.datasets.injected.graph import GraphMetadata
 from CADFD.datasets.injected.windowed import GraphWindowBatch
+from CADFD.evaluation.metrics import ClassMetrics, compute_class_metrics, macro_f1
 from CADFD.logging import logger
 from CADFD.models.base import BaseModel
 from CADFD.schema import TrainConfig
 from CADFD.seed import seed_everything
-from CADFD.evaluation.metrics import ClassMetrics, compute_class_metrics, macro_f1
 from CADFD.training.callbacks import (
     LoggingCallback,
-    TrainMetrics,
     TrainingCallback,
+    TrainMetrics,
 )
 from CADFD.training.graph_batch import GraphWindowDataset, collate_graph_batch
 from CADFD.training.loss import FocalLoss

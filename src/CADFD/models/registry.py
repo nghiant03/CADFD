@@ -6,7 +6,7 @@ to be added dynamically without modifying core training code.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from CADFD.models.base import BaseModel
 from CADFD.models.spatial import CESTAClassifier, STGCNClassifier
@@ -20,8 +20,6 @@ from CADFD.models.temporal import (
     PatchTSTClassifier,
     TransformerClassifier,
 )
-
-ModelFactory = Callable[..., BaseModel]
 
 _REGISTRY: dict[str, type[BaseModel]] = {}
 
@@ -124,6 +122,8 @@ def _extract_metadata_kwargs(
 
     graph_meta = metadata.get("graph")
     if isinstance(graph_meta, GraphMetadata):
+        if graph_meta.adjacency is None:
+            raise ValueError("Graph metadata is missing adjacency")
         kwargs["num_nodes"] = graph_meta.num_nodes
         kwargs["adjacency"] = graph_meta.adjacency.tolist()
 

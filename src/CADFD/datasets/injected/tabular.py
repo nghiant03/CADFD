@@ -19,8 +19,8 @@ from rich.table import Table
 
 from CADFD.datasets.injected.windowed import (
     WindowedSplits,
-    split_and_window,
     collect_splits,
+    split_and_window,
     validate_features,
 )
 from CADFD.schema import InjectionConfig

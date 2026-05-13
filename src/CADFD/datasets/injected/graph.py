@@ -347,7 +347,6 @@ class GraphDataset(InjectedDataset):
             node_mask[t, n] = True
 
         edge_mask_all = self._available_edge_mask(node_mask)
-        X_tr, y_tr, train_starts = create_windows_with_starts(X, y, wc.window_size, wc.train_stride)
         train_end = int(T * wc.train_ratio)
         val_len = int(train_end * wc.val_ratio) if wc.val_ratio > 0 else 0
         val_start = train_end - val_len if wc.val_ratio > 0 else train_end
