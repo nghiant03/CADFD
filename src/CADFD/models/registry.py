@@ -124,8 +124,12 @@ def _extract_metadata_kwargs(
     if isinstance(graph_meta, GraphMetadata):
         if graph_meta.adjacency is None:
             raise ValueError("Graph metadata is missing adjacency")
+        edge_prob = graph_meta.adjacency.copy()
+        if graph_meta.edge_index.shape[1] > 0:
+            edge_prob[graph_meta.edge_index[0], graph_meta.edge_index[1]] = graph_meta.edge_prob
         kwargs["num_nodes"] = graph_meta.num_nodes
         kwargs["adjacency"] = graph_meta.adjacency.tolist()
+        kwargs["edge_prob"] = edge_prob.tolist()
 
     return kwargs
 

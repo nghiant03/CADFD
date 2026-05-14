@@ -41,6 +41,7 @@ class CESTAClassifier(BaseModel):
         input_size: int,
         num_nodes: int,
         adjacency: list[list[float]] | None = None,
+        edge_prob: list[list[float]] | None = None,
         hidden_size: int = 64,
         num_layers: int = 1,
         num_classes: int = 4,
@@ -95,8 +96,17 @@ class CESTAClassifier(BaseModel):
             adj_tensor = torch.eye(num_nodes, dtype=torch.float32)
         if adj_tensor.shape != (num_nodes, num_nodes):
             raise ValueError("adjacency must have shape (num_nodes, num_nodes)")
+        if edge_prob is not None:
+            edge_prob_tensor = torch.tensor(edge_prob, dtype=torch.float32)
+        else:
+            edge_prob_tensor = adj_tensor.clone()
+            edge_prob_tensor.fill_diagonal_(0.0)
+        if edge_prob_tensor.shape != (num_nodes, num_nodes):
+            raise ValueError("edge_prob must have shape (num_nodes, num_nodes)")
         self.register_buffer("adjacency", adj_tensor)
+        self.register_buffer("edge_prob", edge_prob_tensor)
         self._adjacency_list: list[list[float]] = adj_tensor.tolist()
+        self._edge_prob_list: list[list[float]] = edge_prob_tensor.tolist()
 
         self.temporal_encoder = nn.GRU(
             input_size=self.features_per_node,
@@ -117,7 +127,7 @@ class CESTAClassifier(BaseModel):
             nn.Linear(fusion_hidden_size or hidden_size, hidden_size),
         )
         self.request_gate = nn.Sequential(
-            nn.Linear(hidden_size + 1, gate_hidden_size),
+            nn.Linear(hidden_size + 3, gate_hidden_size),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(gate_hidden_size, 2),
@@ -242,8 +252,10 @@ class CESTAClassifier(BaseModel):
         possible_mask = self._possible_message_mask(
             local_hidden, edge_index=edge_index, edge_mask=edge_mask
         )
-        receiver_features = self._receiver_gate_features(local_hidden)
-        gate_logits = self.request_gate(receiver_features)
+        edge_features = self._edge_gate_features(
+            local_hidden, possible_mask, edge_index=edge_index
+        )
+        gate_logits = self.request_gate(edge_features)
 
         soft_gate_probs = F.softmax(gate_logits, dim=-1)
 
@@ -259,8 +271,7 @@ class CESTAClassifier(BaseModel):
                 local_hidden.dtype
             )
 
-        receiver_requests = gate_probs[..., 1]
-        request_mask = receiver_requests.unsqueeze(-1) * possible_mask
+        request_mask = gate_probs[..., 1] * possible_mask
         neighbor_context = self._gat_aggregate(local_hidden, request_mask)
         return neighbor_context, request_mask, possible_mask, soft_gate_probs
 
@@ -302,9 +313,27 @@ class CESTAClassifier(BaseModel):
 
         return torch.einsum("btij,btjh->btih", alpha, V)
 
-    def _receiver_gate_features(self, local_hidden: torch.Tensor) -> torch.Tensor:
-        uncertainty_proxy = local_hidden.detach().norm(dim=-1, keepdim=True)
-        return torch.cat([local_hidden, uncertainty_proxy], dim=-1)
+    def _edge_gate_features(
+        self,
+        local_hidden: torch.Tensor,
+        possible_mask: torch.Tensor,
+        edge_index: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        B, T, N, H = local_hidden.shape
+        local_logits = self.classifier(local_hidden).detach()
+        local_probs = F.softmax(local_logits, dim=-1)
+        entropy = -(local_probs * torch.log(local_probs.clamp_min(1e-8))).sum(dim=-1, keepdim=True)
+        if self.num_classes > 1:
+            top2 = local_probs.topk(k=2, dim=-1).values
+            margin = (top2[..., 0] - top2[..., 1]).unsqueeze(-1)
+        else:
+            margin = torch.ones(B, T, N, 1, dtype=local_hidden.dtype, device=local_hidden.device)
+        receiver_state = local_hidden.unsqueeze(3).expand(B, T, N, N, H)
+        receiver_entropy = entropy.unsqueeze(3).expand(B, T, N, N, 1)
+        receiver_margin = margin.unsqueeze(3).expand(B, T, N, N, 1)
+        edge_prob = cast(torch.Tensor, self.edge_prob).to(device=local_hidden.device, dtype=local_hidden.dtype)
+        edge_prob_features = edge_prob.view(1, 1, N, N, 1).expand(B, T, N, N, 1)
+        return torch.cat([receiver_state, receiver_entropy, receiver_margin, edge_prob_features], dim=-1) * possible_mask.unsqueeze(-1)
 
     def _possible_message_mask(
         self,
@@ -420,6 +449,7 @@ class CESTAClassifier(BaseModel):
             "input_size": self.input_size,
             "num_nodes": self.num_nodes,
             "adjacency": self._adjacency_list,
+            "edge_prob": self._edge_prob_list,
             "hidden_size": self.hidden_size,
             "num_layers": self.num_layers,
             "num_classes": self.num_classes,
@@ -442,6 +472,7 @@ class CESTAClassifier(BaseModel):
             input_size=int(config["input_size"]),
             num_nodes=int(config["num_nodes"]),
             adjacency=config.get("adjacency"),  # type: ignore[arg-type]
+            edge_prob=config.get("edge_prob"),  # type: ignore[arg-type]
             hidden_size=int(config.get("hidden_size", 64)),
             num_layers=int(config.get("num_layers", 1)),
             num_classes=int(config["num_classes"]),
