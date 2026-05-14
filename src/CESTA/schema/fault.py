@@ -69,16 +69,6 @@ class FaultConfig(BaseModel):
         """Probability of returning to NORMAL at each timestep."""
         return 1.0 / self.average_duration
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "fault_type": self.fault_type.name,
-            "transition_prob": self.transition_prob,
-            "average_duration": self.average_duration,
-            "params": self.params,
-        }
-
-
 class MarkovConfig(BaseModel):
     """Configuration for the Markov chain state generator.
 
@@ -138,9 +128,3 @@ class MarkovConfig(BaseModel):
                 return cfg
         return None
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "seed": self.seed,
-            "fault_configs": [cfg.to_dict() for cfg in self.fault_configs],
-        }

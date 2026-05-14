@@ -26,7 +26,7 @@ from CESTA.datasets.injected.windowed import (
 from CESTA.schema import InjectionConfig
 from CESTA.schema.fault import FaultType
 from CESTA.schema.manifest import DatasetInfo
-from CESTA.schema.window import WindowConfig
+from CESTA.schema.window import DataSplitConfig, WindowConfig
 from CESTA.utils import sha256_file
 
 
@@ -56,7 +56,7 @@ class InjectedDataset:
         self.df.to_csv(directory / "injected_data.csv", index=False)
 
         meta = {
-            "config": self.config.to_dict(),
+            "config": self.config.model_dump(mode="json"),
             "feature_names": self.feature_names,
         }
         (directory / "injected_meta.json").write_text(json.dumps(meta, indent=2))
@@ -171,6 +171,7 @@ class InjectedDataset:
     def prepare(
         self,
         window_config: WindowConfig | None = None,
+        split_config: DataSplitConfig | None = None,
         features: list[str] | None = None,
         required_metadata: set[str] | None = None,
     ) -> WindowedSplits:
@@ -185,7 +186,7 @@ class InjectedDataset:
 
         Args:
             window_config: Windowing configuration. Falls back to
-                ``self.config.window``.
+                ``WindowConfig()``.
             features: Subset of feature names to use. When ``None``
                 (default), all features from ``self.feature_names``
                 are used.
@@ -199,7 +200,11 @@ class InjectedDataset:
         Raises:
             ValueError: If any name in *features* is not in the dataset.
         """
-        wc = window_config if window_config is not None else self.config.window
+        wc = window_config if window_config is not None else WindowConfig()
+        split = split_config if split_config is not None else DataSplitConfig()
+        if split.strategy != "chronological":
+            msg = f"InjectedDataset supports only chronological split strategy, got {split.strategy!r}"
+            raise ValueError(msg)
         selected_features = validate_features(features, self.feature_names)
         group_col = self.group_column
 
@@ -217,7 +222,7 @@ class InjectedDataset:
             group_labels = group_df["fault_state"].to_numpy(dtype=np.int32)
 
             X_tr, y_tr, X_va, y_va, X_te, y_te = split_and_window(
-                group_features, group_labels, wc
+                group_features, group_labels, wc, split
             )
 
             if len(X_tr) > 0:

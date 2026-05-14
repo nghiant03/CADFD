@@ -14,10 +14,11 @@ from CESTA.datasets.injected.tabular import InjectedDataset
 from CESTA.datasets.injected.windowed import (
     WindowedSplits,
     create_windows_with_starts,
+    split_boundaries,
     validate_features,
 )
 from CESTA.logging import logger
-from CESTA.schema.window import WindowConfig
+from CESTA.schema.window import DataSplitConfig, WindowConfig
 
 
 @dataclass
@@ -311,6 +312,7 @@ class GraphDataset(InjectedDataset):
     def prepare(
         self,
         window_config: WindowConfig | None = None,
+        split_config: DataSplitConfig | None = None,
         features: list[str] | None = None,
         required_metadata: set[str] | None = None,
     ) -> WindowedSplits:
@@ -318,10 +320,12 @@ class GraphDataset(InjectedDataset):
             return InjectedDataset.prepare(
                 self,
                 window_config=window_config,
+                split_config=split_config,
                 features=features,
                 required_metadata=required_metadata,
             )
-        wc = window_config if window_config is not None else self.config.window
+        wc = window_config if window_config is not None else WindowConfig()
+        split = split_config if split_config is not None else DataSplitConfig(strategy="connectivity_aware_chronological")
         selected_features = validate_features(features, self.feature_names)
         if selected_features != ["temp"]:
             raise ValueError('Dynamic graph preparation currently supports only features=["temp"]')
@@ -347,20 +351,18 @@ class GraphDataset(InjectedDataset):
             node_mask[t, n] = True
 
         edge_mask_all = self._available_edge_mask(node_mask)
-        train_end = int(T * wc.train_ratio)
-        val_len = int(train_end * wc.val_ratio) if wc.val_ratio > 0 else 0
-        val_start = train_end - val_len if wc.val_ratio > 0 else train_end
+        train_end, val_end = self._split_boundaries(T, edge_mask_all, wc, split)
         X_train, y_train, train_starts = create_windows_with_starts(
-            X[:val_start], y[:val_start], wc.window_size, wc.train_stride
+            X[:train_end], y[:train_end], wc.window_size, wc.train_stride
         )
         X_val, y_val, val_starts = create_windows_with_starts(
-            X[val_start:train_end], y[val_start:train_end], wc.window_size, wc.test_stride
+            X[train_end:val_end], y[train_end:val_end], wc.window_size, wc.test_stride
         )
         X_test, y_test, test_starts = create_windows_with_starts(
-            X[train_end:], y[train_end:], wc.window_size, wc.test_stride
+            X[val_end:], y[val_end:], wc.window_size, wc.test_stride
         )
-        val_starts = val_starts + val_start
-        test_starts = test_starts + train_end
+        val_starts = val_starts + train_end
+        test_starts = test_starts + val_end
 
         metadata = GraphMetadata(
             edge_index=self.edge_index,
@@ -402,6 +404,73 @@ class GraphDataset(InjectedDataset):
         sender = self.edge_index[0]
         receiver = self.edge_index[1]
         return self.link_mask & node_mask[:, sender] & node_mask[:, receiver]
+
+    def _split_boundaries(
+        self,
+        num_timestamps: int,
+        edge_mask: NDArray[np.bool_],
+        wc: WindowConfig,
+        split: DataSplitConfig,
+    ) -> tuple[int, int]:
+        target_train_end, target_val_end = split_boundaries(num_timestamps, split)
+        if split.strategy == "chronological":
+            return target_train_end, target_val_end
+        tolerance = max(wc.window_size, int(num_timestamps * split.tolerance))
+        train_min = max(wc.window_size, target_train_end - tolerance)
+        train_max = min(target_train_end + tolerance, num_timestamps - (2 * wc.window_size))
+        val_min = max(train_min + wc.window_size, target_val_end - tolerance)
+        val_max = min(target_val_end + tolerance, num_timestamps - wc.window_size)
+
+        if train_min > train_max or val_min > val_max:
+            msg = (
+                "Unable to create graph train/val/test splits with at least one window per split. "
+                f"num_timestamps={num_timestamps}, window_size={wc.window_size}, "
+                f"target_train_end={target_train_end}, target_val_end={target_val_end}"
+            )
+            raise ValueError(msg)
+
+        best: tuple[int, int] | None = None
+        best_distance: int | None = None
+        for train_end in range(train_min, train_max + 1):
+            val_start = max(train_end + wc.window_size, val_min)
+            for val_end in range(val_start, val_max + 1):
+                if not self._split_has_available_edges(edge_mask, 0, train_end, wc.train_stride, wc.window_size):
+                    continue
+                if not self._split_has_available_edges(edge_mask, train_end, val_end, wc.test_stride, wc.window_size):
+                    continue
+                if not self._split_has_available_edges(edge_mask, val_end, num_timestamps, wc.test_stride, wc.window_size):
+                    continue
+                distance = abs(train_end - target_train_end) + abs(val_end - target_val_end)
+                if best_distance is None or distance < best_distance:
+                    best = (train_end, val_end)
+                    best_distance = distance
+            if best_distance == 0:
+                break
+
+        if best is None:
+            msg = (
+                "Unable to create connectivity-aware chronological graph split: "
+                "train, validation, and test splits must each contain at least one window with available graph edges. "
+                f"num_timestamps={num_timestamps}, window_size={wc.window_size}, train_ratio={split.train_ratio}, "
+                f"val_ratio={split.val_ratio}, test_ratio={split.test_ratio}, "
+                f"target_train_end={target_train_end}, target_val_end={target_val_end}, "
+                f"search_tolerance={tolerance}, active_edge_timesteps={int(edge_mask.any(axis=1).sum())}"
+            )
+            raise ValueError(msg)
+        return best
+
+    @staticmethod
+    def _split_has_available_edges(
+        edge_mask: NDArray[np.bool_],
+        start: int,
+        end: int,
+        stride: int,
+        window_size: int,
+    ) -> bool:
+        if end - start < window_size:
+            return False
+        starts = range(start, end - window_size + 1, stride)
+        return any(bool(edge_mask[i : i + window_size].any()) for i in starts)
 
     @staticmethod
     def _window_by_starts(

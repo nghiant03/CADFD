@@ -4,7 +4,6 @@ Handles the full training loop including:
 - Optional oversampling of minority classes
 - Configurable loss function (cross-entropy or focal loss)
 - Callback-driven logging, early stopping, and checkpointing
-- Automatic train/val split when no validation data is provided
 - Per-class precision, recall, F1 metrics
 """
 
@@ -32,12 +31,6 @@ from CESTA.training.callbacks import (
 from CESTA.training.graph_batch import GraphWindowDataset, collate_graph_batch
 from CESTA.training.loss import FocalLoss
 from CESTA.training.oversampling import oversample_minority
-
-_DEPRECATED_VAL_RATIO_MSG = (
-    "TrainConfig.val_ratio is deprecated. "
-    "Validation data is now split chronologically in prepare_data(). "
-    "Pass val data explicitly to Trainer.fit()."
-)
 
 
 def build_loss(
@@ -157,9 +150,6 @@ class Trainer:
         edge_mask_val: NDArray[np.bool_] | None = None,
     ) -> TrainResult:
         """Train the model.
-
-        If no validation data is provided and ``config.val_ratio > 0``,
-        the training data is automatically split.
 
         Args:
             model: Model instance to train (modified in-place).

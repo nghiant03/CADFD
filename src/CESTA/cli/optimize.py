@@ -92,7 +92,7 @@ def optimize(
         seed=seed,
         features=features,
     )
-    logger.debug("OptimizeConfig: {}", config.to_dict())
+    logger.debug("OptimizeConfig: {}", config.model_dump(mode="json"))
 
     from CESTA.optimization import Optimizer
 
@@ -113,7 +113,7 @@ def optimize(
             "best_value": best.value,
             "best_trial_number": best.number,
             "best_params": best.params,
-            "optimize_config": config.to_dict(),
+            "optimize_config": config.model_dump(mode="json"),
         }
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(payload, indent=2))

@@ -18,9 +18,11 @@ from CESTA.schema.manifest import (
     RunManifest,
     Timing,
 )
-from CESTA.schema.window import WindowConfig
+from CESTA.schema.window import DataConfig, DataSplitConfig, WindowConfig
 
 __all__ = [
+    "DataConfig",
+    "DataSplitConfig",
     "DatasetInfo",
     "EnvInfo",
     "EvaluateConfig",

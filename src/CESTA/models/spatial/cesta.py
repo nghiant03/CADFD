@@ -202,9 +202,7 @@ class CESTAClassifier(BaseModel):
                 seq_len=seq_len,
                 device=x.device,
             )
-            self._communication_loss = self._compute_communication_loss(
-                self._last_communication_stats, x.device
-            )
+            self._communication_loss = self._dense_communication_loss(possible_mask)
             self._gate_entropy = None
         elif self.communication_mode == "gumbel_request":
             neighbor_context, request_mask, possible_mask, soft_gate_probs = (
@@ -218,16 +216,15 @@ class CESTAClassifier(BaseModel):
                 request_mask=request_mask,
                 possible_mask=possible_mask,
             )
-            self._communication_loss = self._compute_communication_loss(
-                self._last_communication_stats, x.device
+            self._communication_loss = self._request_communication_loss(
+                request_mask=request_mask,
+                possible_mask=possible_mask,
             )
             self._gate_entropy = self._compute_gate_entropy(soft_gate_probs)
         else:
             hidden = self.dropout(local_hidden)
             self._last_communication_stats = self._zero_communication_stats()
-            self._communication_loss = self._compute_communication_loss(
-                self._last_communication_stats, x.device
-            )
+            self._communication_loss = torch.zeros((), dtype=local_hidden.dtype, device=x.device)
             self._gate_entropy = None
 
         return self.classifier(hidden)
@@ -417,15 +414,18 @@ class CESTAClassifier(BaseModel):
             else 0.0,
         }
 
-    def _compute_communication_loss(
-        self,
-        stats: CommunicationStats,
-        device: torch.device,
+    @staticmethod
+    def _request_communication_loss(
+        request_mask: torch.Tensor,
+        possible_mask: torch.Tensor,
     ) -> torch.Tensor:
-        ratio = torch.tensor(
-            stats["active_request_ratio"], dtype=torch.float32, device=device
-        )
-        return ratio
+        possible_edges = possible_mask.sum().clamp_min(1.0)
+        return request_mask.sum() / possible_edges
+
+    @staticmethod
+    def _dense_communication_loss(possible_mask: torch.Tensor) -> torch.Tensor:
+        possible_edges = possible_mask.sum()
+        return possible_edges / possible_edges.clamp_min(1.0)
 
     def _compute_gate_entropy(
         self,

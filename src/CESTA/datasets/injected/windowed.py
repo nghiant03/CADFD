@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from CESTA.schema.window import WindowConfig
+from CESTA.schema.window import DataSplitConfig, WindowConfig
 
 
 @dataclass
@@ -108,10 +108,17 @@ def create_windows_with_starts(
     return X.astype(np.float32), y.astype(np.int32), starts
 
 
+def split_boundaries(n: int, split: DataSplitConfig) -> tuple[int, int]:
+    train_end = int(n * split.train_ratio)
+    val_end = train_end + int(n * split.val_ratio) if split.val_ratio > 0 else train_end
+    return train_end, val_end
+
+
 def split_and_window(
     features: NDArray[np.float32],
     labels: NDArray[np.int32],
     wc: WindowConfig,
+    split: DataSplitConfig,
 ) -> tuple[
     NDArray[np.float32],
     NDArray[np.int32],
@@ -121,18 +128,11 @@ def split_and_window(
     NDArray[np.int32],
 ]:
     """Chronologically split a single contiguous block and create windows."""
-    n = len(features)
-    train_end = int(n * wc.train_ratio)
+    train_end, val_end = split_boundaries(len(features), split)
 
-    if wc.val_ratio > 0:
-        val_len = int(train_end * wc.val_ratio)
-        val_start = train_end - val_len
-    else:
-        val_start = train_end
-
-    X_tr, y_tr = create_windows(features[:val_start], labels[:val_start], wc.window_size, wc.train_stride)
-    X_va, y_va = create_windows(features[val_start:train_end], labels[val_start:train_end], wc.window_size, wc.test_stride)
-    X_te, y_te = create_windows(features[train_end:], labels[train_end:], wc.window_size, wc.test_stride)
+    X_tr, y_tr = create_windows(features[:train_end], labels[:train_end], wc.window_size, wc.train_stride)
+    X_va, y_va = create_windows(features[train_end:val_end], labels[train_end:val_end], wc.window_size, wc.test_stride)
+    X_te, y_te = create_windows(features[val_end:], labels[val_end:], wc.window_size, wc.test_stride)
 
     return X_tr, y_tr, X_va, y_va, X_te, y_te
 

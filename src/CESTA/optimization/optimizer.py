@@ -129,13 +129,15 @@ class Optimizer:
         dataset.print_summary()
         model_cls = get_model_class(model_name)
         prepared = dataset.prepare(
+            window_config=self.config.data.window,
+            split_config=self.config.data.split,
             features=self.config.features,
             required_metadata=model_cls.required_metadata,
         )
         if not prepared.has_val:
             raise RuntimeError(
                 "Optimization requires a validation split. "
-                "Re-run injection with a non-zero val_ratio."
+                "Use a data split config with val_ratio > 0."
             )
         self._dataset = dataset
         self._prepared = prepared
@@ -152,6 +154,7 @@ class Optimizer:
             epochs=self.config.epochs,
             seed=self.config.seed,
             features=self.config.features,
+            data=self.config.data,
             model_kwargs=model_kwargs,
             **train_overrides,
         )

@@ -56,7 +56,7 @@ notebooks/             # Jupyter notebooks for analysis
 The `schema/` module contains Pydantic configuration and artifact schemas used by injection, training, evaluation, and reproducibility manifests:
 
 - `schema/fault.py`: `FaultType`, `FaultConfig`, `MarkovConfig`.
-- `schema/window.py`: `WindowConfig`.
+- `schema/window.py`: `WindowConfig`, `DataSplitConfig`, `DataConfig`.
 - `schema/config.py`: `InjectionConfig`, `TrainConfig`, `EvaluateConfig`, `OptimizeConfig`.
 - `schema/manifest.py`: `RunManifest`, `EnvInfo`, `GitInfo`, `DatasetInfo`, `Timing`.
 - `schema/types.py`: backward-compatible re-export shim only; prefer importing from `schema.fault` or `schema.window` in new code.
@@ -131,8 +131,8 @@ Pre-injection dataset loaders.
 
 Post-injection containers, graph topology, and windowing.
 
-- `InjectedDataset` (`injected/tabular.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, features, required_metadata) -> WindowedSplits` for per-group chronological windowing.
-- `GraphDataset` (`injected/graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep, keeps **per-node labels** of shape `(num_windows, window_size, num_nodes)`). When `required_metadata` does not include `"graph"`, delegates to `InjectedDataset.prepare()` so non-graph models work on graph datasets without shape mismatch. Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
+- `InjectedDataset` (`injected/tabular.py`) - Container with injected DataFrame + config + save/load. Has `.prepare(window_config, split_config, features, required_metadata) -> WindowedSplits` for per-group chronological windowing. Window and split settings are train-time data config, not injection config.
+- `GraphDataset` (`injected/graph.py`) - Subclass of `InjectedDataset` that adds graph topology (adjacency matrix, node IDs, threshold). Overrides `.prepare()` for graph-aligned windowing (concatenates all sensor features per timestep, keeps **per-node labels** of shape `(num_windows, window_size, num_nodes)`). When `required_metadata` does not include `"graph"`, delegates to `InjectedDataset.prepare()` so non-graph models work on graph datasets without shape mismatch. Graph split strategy can be `chronological` or `connectivity_aware_chronological`; the latter keeps chronological ordering, searches split boundaries within `DataSplitConfig.tolerance`, and raises `ValueError` if train/val/test cannot each contain an edge-connected graph window. Returns `GraphMetadata` in `WindowedSplits.metadata["graph"]`. Built via `GraphDataset.from_connectivity(path, connectivity_path, threshold)` or loaded from disk with `GraphDataset.load(path)`.
 - `GraphMetadata` (`injected/graph.py`) - Typed dataclass holding `adjacency`, `node_ids`, `num_nodes`, `threshold`. Stored in `WindowedSplits.metadata["graph"]` by `GraphDataset.prepare()`.
 - `WindowedSplits` (`injected/windowed.py`) - Unified dataclass holding windowed data partitions + `metadata` dict. Includes input-shape metadata and split-availability flags.
 - `load_adjacency_matrix` (`injected/graph.py`) - Loads binary adjacency matrix from a connectivity data file (whitespace-separated: `source dest probability`), thresholds by connectivity probability.
@@ -142,14 +142,16 @@ Post-injection containers, graph topology, and windowing.
 
 ### Data Preparation Pattern
 
-All dataset types expose a `.prepare(required_metadata=...)` method returning `WindowedSplits`. The CLI calls `load_dataset(path)` which returns the right variant, then `dataset.prepare(required_metadata=model_cls.required_metadata)` dispatches polymorphically. When a `GraphDataset` receives `required_metadata` without `"graph"`, it falls back to per-group tabular windowing so non-graph models work seamlessly. Graph metadata travels via `WindowedSplits.metadata["graph"]`.
+All dataset types expose a `.prepare(window_config, split_config, required_metadata=...)` method returning `WindowedSplits`. The train CLI loads `TrainConfig.data.window` and `TrainConfig.data.split`, calls `load_dataset(path)`, then `dataset.prepare(window_config=config.data.window, split_config=config.data.split, required_metadata=model_cls.required_metadata)` dispatches polymorphically. When a `GraphDataset` receives `required_metadata` without `"graph"`, it falls back to per-group tabular windowing so non-graph models work seamlessly. Graph metadata travels via `WindowedSplits.metadata["graph"]`.
 
 `create_model` accepts `metadata` and automatically validates model requirements and extracts architecture-specific kwargs (e.g. `num_nodes`, `adjacency` for GCN).
 
 ```python
 dataset = load_dataset(data)
 model_cls = get_model_class(config.model)
-prepared = dataset.prepare(features=config.features,
+prepared = dataset.prepare(window_config=config.data.window,
+                           split_config=config.data.split,
+                           features=config.features,
                            required_metadata=model_cls.required_metadata)
 net = create_model(config.model, input_size=prepared.input_size,
                    num_classes=num_classes, metadata=prepared.metadata)
@@ -323,7 +325,7 @@ To add a new model that needs special metadata:
 
 ## CESTA Model (`models/spatial/cesta.py`)
 
-`CESTAClassifier` is registered as `cesta` and requires graph metadata. It expects graph-aligned input `(batch, window_size, num_nodes * features_per_node)` and returns logits `(batch, window_size, num_nodes, num_classes)`. Supported `communication_mode` values are `"none"` for the temporal-only fixed backbone, `"dense"` for all non-self graph edges with full hidden-state messages, and `"gumbel_request"` for receiver-side straight-through Gumbel request gating with full hidden-state messages. Gumbel request gating is per receiver-sender edge using receiver local hidden state, local classifier entropy, local classifier margin, and edge probability from graph metadata; it does not inspect sender hidden state before requesting. Dense and Gumbel modes use GAT-inspired single-head attention aggregation: Q from local hidden, K/V from received neighbor hiddens, softmax over received set only, zero-vector when no neighbors requested. The latest forward communication counters are available via `last_communication_stats` with active ratio, requested/possible edge counts, transmitted-bit estimate, and compression-count fields; `auxiliary_loss` exposes communication ratio for generic trainer penalties. `TrainConfig.communication_penalty_weight` adds that auxiliary loss when present. Evaluation writes `communication_metrics.json` for communication-aware models.
+`CESTAClassifier` is registered as `cesta` and requires graph metadata. It expects graph-aligned input `(batch, window_size, num_nodes * features_per_node)` and returns logits `(batch, window_size, num_nodes, num_classes)`. Supported `communication_mode` values are `"none"` for the temporal-only fixed backbone, `"dense"` for all non-self graph edges with full hidden-state messages, and `"gumbel_request"` for receiver-side straight-through Gumbel request gating with full hidden-state messages. Gumbel request gating is per receiver-sender edge using receiver local hidden state, local classifier entropy, local classifier margin, and edge probability from graph metadata; it does not inspect sender hidden state before requesting. Dense and Gumbel modes use GAT-inspired single-head attention aggregation: Q from local hidden, K/V from received neighbor hiddens, softmax over received set only, zero-vector when no neighbors requested. The latest forward communication counters are available via `last_communication_stats` with active ratio, requested/possible edge counts, transmitted-bit estimate, and compression-count fields; `auxiliary_loss` exposes a gradient-preserving communication ratio tensor for generic trainer penalties. `TrainConfig.communication_penalty_weight` adds that auxiliary loss when present. Evaluation writes `communication_metrics.json` for communication-aware models.
 
 ## CLI Options (inject run)
 

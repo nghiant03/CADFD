@@ -5,13 +5,6 @@ all_features: [temp, humid, light, volt]
 interpolation_method: linear
 group_column: moteid
 
-window:
-  window_size: 60
-  train_stride: 10
-  test_stride: 60
-  train_ratio: 0.8
-  val_ratio: 0.1
-
 markov:
   seed: 42
   fault_configs:

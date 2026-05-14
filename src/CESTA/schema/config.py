@@ -13,8 +13,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from CESTA.schema.fault import FaultType, MarkovConfig
-from CESTA.schema.window import WindowConfig
+from CESTA.schema.fault import MarkovConfig
+from CESTA.schema.window import DataConfig
 
 
 def load_config_file(path: str | Path) -> dict[str, Any]:
@@ -46,7 +46,6 @@ class InjectionConfig(BaseModel):
 
     Attributes:
         markov: Markov chain configuration.
-        window: Windowing configuration.
         resample_freq: Resampling frequency string (e.g., "30s").
         target_features: Features to inject faults into.
         all_features: All features to include in the output.
@@ -58,7 +57,6 @@ class InjectionConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     markov: MarkovConfig = Field(default_factory=MarkovConfig)
-    window: WindowConfig = Field(default_factory=WindowConfig)
     resample_freq: str = "5min"
     target_features: list[str] = Field(default_factory=lambda: ["temp"])
     all_features: list[str] = Field(default_factory=lambda: ["temp", "humid", "light", "volt"])
@@ -76,20 +74,6 @@ class InjectionConfig(BaseModel):
                 self.markov.model_copy(update={"seed": self.seed}),
             )
         return self
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "markov": self.markov.to_dict(),
-            "window": self.window.to_dict(),
-            "resample_freq": self.resample_freq,
-            "target_features": self.target_features,
-            "all_features": self.all_features,
-            "interpolation_method": self.interpolation_method,
-            "group_column": self.group_column,
-            "seed": self.seed,
-            "fault_type_mapping": {ft.name: ft.value for ft in FaultType},
-        }
 
 
 class TrainConfig(BaseModel):
@@ -120,7 +104,7 @@ class TrainConfig(BaseModel):
         early_stopping_monitor: Metric to monitor for early stopping
             (``val_loss``, ``val_macro_f1``, or ``val_acc``).
         features: Subset of feature names to train on. None means all features.
-        val_ratio: Fraction of training data to use for validation (0.0 = no split).
+        data: Train-time data windowing and split configuration.
         seed: Random seed for reproducibility.
     """
 
@@ -145,7 +129,7 @@ class TrainConfig(BaseModel):
     checkpoint_monitor: str = Field(default="val_loss", pattern=r"^(val_loss|val_macro_f1|val_acc)$")
     early_stopping_monitor: str = Field(default="val_loss", pattern=r"^(val_loss|val_macro_f1|val_acc)$")
     features: list[str] | None = None
-    val_ratio: float = Field(default=0.1, ge=0.0, lt=1.0)
+    data: DataConfig = Field(default_factory=DataConfig)
     seed: int = 42
     model_kwargs: dict[str, Any] = Field(default_factory=dict)
 
@@ -160,36 +144,10 @@ class TrainConfig(BaseModel):
             merged = dict(train_section)
             if "model_kwargs" in data:
                 merged["model_kwargs"] = data["model_kwargs"]
+            if "data" in data:
+                merged["data"] = data["data"]
             return merged
         return data
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "model": self.model,
-            "epochs": self.epochs,
-            "batch_size": self.batch_size,
-            "learning_rate": self.learning_rate,
-            "use_focal_loss": self.use_focal_loss,
-            "focal_gamma": self.focal_gamma,
-            "focal_alpha": self.focal_alpha,
-            "oversample": self.oversample,
-            "oversample_ratio": self.oversample_ratio,
-            "communication_penalty_weight": self.communication_penalty_weight,
-            "communication_penalty_mode": self.communication_penalty_mode,
-            "target_request_ratio": self.target_request_ratio,
-            "gate_entropy_weight": self.gate_entropy_weight,
-            "gumbel_tau_start": self.gumbel_tau_start,
-            "gumbel_tau_end": self.gumbel_tau_end,
-            "gumbel_tau_anneal_epochs": self.gumbel_tau_anneal_epochs,
-            "checkpoint_monitor": self.checkpoint_monitor,
-            "early_stopping_monitor": self.early_stopping_monitor,
-            "features": self.features,
-            "val_ratio": self.val_ratio,
-            "seed": self.seed,
-            "model_kwargs": self.model_kwargs,
-        }
-
 
 class EvaluateConfig(BaseModel):
     """Configuration for model evaluation.
@@ -201,13 +159,6 @@ class EvaluateConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     batch_size: int = Field(default=64, ge=1)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "batch_size": self.batch_size,
-        }
-
 
 class OptimizeConfig(BaseModel):
     """Configuration for hyperparameter optimization with Optuna.
@@ -228,6 +179,7 @@ class OptimizeConfig(BaseModel):
         startup_trials: Number of random trials before TPE/MedianPruner kicks in.
         load_if_exists: Resume an existing study with the same name.
         features: Subset of feature names to train on. None = all features.
+        data: Train-time data windowing and split configuration.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -249,6 +201,7 @@ class OptimizeConfig(BaseModel):
     startup_trials: int = Field(default=5, ge=0)
     load_if_exists: bool = True
     features: list[str] | None = None
+    data: DataConfig = Field(default_factory=DataConfig)
 
     @model_validator(mode="after")
     def _align_direction_with_metric(self) -> "OptimizeConfig":
@@ -267,21 +220,3 @@ class OptimizeConfig(BaseModel):
             return "minimize"
         return "maximize"
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "model": self.model,
-            "n_trials": self.n_trials,
-            "timeout": self.timeout,
-            "seed": self.seed,
-            "storage": self.storage,
-            "study_name": self.study_name,
-            "direction": self.direction,
-            "metric": self.metric,
-            "epochs": self.epochs,
-            "sampler": self.sampler,
-            "pruner": self.pruner,
-            "startup_trials": self.startup_trials,
-            "load_if_exists": self.load_if_exists,
-            "features": self.features,
-        }

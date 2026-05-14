@@ -61,7 +61,7 @@ def train(
 ) -> None:
     """Train a fault diagnosis model."""
     config = TrainConfig.model_validate(load_config_file(config_file))
-    logger.debug("TrainConfig: {}", config.to_dict())
+    logger.debug("TrainConfig: {}", config.model_dump(mode="json"))
 
     logger.info("Loading data from: {}", data)
     dataset = load_dataset(data)
@@ -69,6 +69,8 @@ def train(
 
     model_cls = get_model_class(config.model)
     prepared = dataset.prepare(
+        window_config=config.data.window,
+        split_config=config.data.split,
         features=config.features,
         required_metadata=model_cls.required_metadata,
     )
@@ -112,7 +114,7 @@ def train(
         LoggingCallback(),
         CheckpointCallback(
             save_path=run_dir,
-            config_dict=config.to_dict(),
+            config_dict=config.model_dump(mode="json"),
             monitor=config.checkpoint_monitor,
         ),
         HistoryCallback(save_path=run_dir),
@@ -165,7 +167,7 @@ def train(
         if weight_path.exists():
             import torch
 
-            net.load_state_dict(torch.load(weight_path, map_location=trainer.device))
+            net.load_state_dict(torch.load(weight_path, map_location=trainer.device, weights_only=True))
             logger.info("Reloaded best checkpoint from {} for test evaluation", weight_path)
         else:
             logger.warning("No checkpoint at {}; evaluating final-epoch weights", weight_path)
@@ -187,8 +189,8 @@ def train(
 
         eval_result.save(
             run_dir,
-            train_config=config.to_dict(),
-            injection_config=dataset.config.to_dict(),
+            train_config=config.model_dump(mode="json"),
+            injection_config=dataset.config.model_dump(mode="json"),
         )
         logger.info("Results saved to: {}", run_dir)
 
@@ -207,8 +209,8 @@ def train(
             duration_seconds=duration,
             epochs_run=result.stopped_epoch,
         ),
-        train_config=config.to_dict(),
-        injection_config=dataset.config.to_dict(),
+        train_config=config.model_dump(mode="json"),
+        injection_config=dataset.config.model_dump(mode="json"),
     )
-    (run_dir / "manifest.json").write_text(json.dumps(manifest.to_dict(), indent=2))
+    (run_dir / "manifest.json").write_text(json.dumps(manifest.model_dump(mode="json"), indent=2))
     logger.info("Manifest written to: {}", run_dir / "manifest.json")

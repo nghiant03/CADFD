@@ -88,6 +88,3 @@ class RunManifest(BaseModel):
     train_config: dict[str, Any] | None = None
     eval_config: dict[str, Any] | None = None
     injection_config: dict[str, Any] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump()

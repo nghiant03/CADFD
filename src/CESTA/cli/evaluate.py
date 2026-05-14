@@ -68,11 +68,21 @@ def evaluate(
 
     train_cfg = meta.get("train_config")
     saved_features: list[str] | None = None
+    data_config = None
     if isinstance(train_cfg, dict):
         saved_features = train_cfg.get("features")
+        data_config = train_cfg.get("data")
+
+    from CESTA.schema.window import DataConfig
 
     model_cls = get_model_class(model_name)
+    if isinstance(data_config, dict):
+        resolved_data_config = DataConfig.model_validate(data_config)
+    else:
+        resolved_data_config = DataConfig()
     prepared = dataset.prepare(
+        window_config=resolved_data_config.window,
+        split_config=resolved_data_config.split,
         features=saved_features,
         required_metadata=model_cls.required_metadata,
     )
@@ -132,7 +142,7 @@ def evaluate(
     result.save(
         save_dir,
         train_config=train_cfg,  # type: ignore[arg-type]
-        injection_config=dataset.config.to_dict(),
+        injection_config=dataset.config.model_dump(mode="json"),
     )
     logger.info("Results saved to: {}", save_dir)
 
@@ -155,8 +165,8 @@ def evaluate(
                 duration_seconds=duration,
             ),
             train_config=train_cfg if isinstance(train_cfg, dict) else None,
-            eval_config=config.to_dict(),
-            injection_config=dataset.config.to_dict(),
+            eval_config=config.model_dump(mode="json"),
+            injection_config=dataset.config.model_dump(mode="json"),
         )
-        (save_dir / "manifest.json").write_text(json.dumps(manifest.to_dict(), indent=2))
+        (save_dir / "manifest.json").write_text(json.dumps(manifest.model_dump(mode="json"), indent=2))
         logger.info("Manifest written to: {}", save_dir / "manifest.json")
