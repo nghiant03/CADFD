@@ -7,7 +7,7 @@ pub const MQTT_USER: &str = "";
 pub const MQTT_PASSWORD: &str = "";
 
 pub const DEVICE_ID: &str = "esp32_01";
-pub const MQTT_TOPIC_PREFIX: &str = "cafd/readings/";
+pub const MQTT_TOPIC_PREFIX: &str = "cesta/readings/";
 
 pub const DHT_PIN: i32 = 5;
 

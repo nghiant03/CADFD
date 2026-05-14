@@ -41,12 +41,12 @@ This directory includes `rust-toolchain.toml`, so Cargo automatically selects th
 cd firmware
 cargo check
 cargo build --release
-espflash flash target/xtensa-esp32s3-espidf/release/cafd-firmware --monitor
+espflash flash target/xtensa-esp32s3-espidf/release/cesta-firmware --monitor
 ```
 
 ## MQTT Payload
 
-Publishes JSON to `cafd/readings/<device_id>` every 30 seconds:
+Publishes JSON to `cesta/readings/<device_id>` every 30 seconds:
 
 ```json
 {"device_id": "esp32_01", "timestamp": 1718000000, "temperature": 25.3, "humidity": 60.1}
@@ -60,4 +60,4 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker. Recommended stack:
 - **Telegraf** — MQTT → InfluxDB bridge
 - **InfluxDB** — Time-series storage
 - **Grafana** — Dashboard
-- **Python MQTT subscriber** — export to `data/raw/esp32_dht11/` CSV for the CADFD pipeline
+- **Python MQTT subscriber** — export to `data/raw/esp32_dht11/` CSV for the CESTA pipeline

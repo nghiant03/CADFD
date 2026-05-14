@@ -9,8 +9,8 @@ This repository is a research project for fault diagnosis analysis.
 
 ## Code Quality
 
-- Use **ruff** for linting and formatting `.py` source files. Ruff is configured in `pyproject.toml` with line length 150 and import sorting enabled.
-- Use **pyright** for type checking `.py` source files.
+- Use **ruff** for linting and formatting `.py` source files. Ruff is configured in `pyproject.toml` with line length 150 and import sorting enabled. Check source with `uv run ruff check src/CESTA`.
+- Use **pyright** for type checking `.py` source files. Check source with `uv run pyright src/CESTA`.
 - Do **not** use `TYPE_CHECKING` from `typing`. Use `from __future__ import annotations` and lazy imports inside functions instead.
 - When changing a function, file, class, or variable, **always reconsider whether its name still accurately describes its purpose**. Rename if the name no longer fits.
 
@@ -21,7 +21,7 @@ This repository is a research project for fault diagnosis analysis.
 ## Project Structure
 
 ```
-src/CADFD/
+src/CESTA/
 ├── schema/            # Pydantic config and manifest schemas split by domain
 ├── batch.py           # Runtime batch contracts shared by training/evaluation/spatial models
 ├── cli/               # Typer CLI with subcommands (inject, prepare, train, evaluate)
@@ -70,14 +70,14 @@ The `schema/` module contains Pydantic configuration and artifact schemas used b
 Single-file module with shared runtime helpers, used mainly by the train/evaluate CLIs:
 
 - `collect_git_info(cwd=None)` - commit SHA, branch, dirty flag (via `dulwich`, no `git` binary required)
-- `collect_env_info(device)` - python / torch / cuda / host / device name / cadfd version
+- `collect_env_info(device)` - python / torch / cuda / host / device name / cesta version
 - `generate_run_id(model, seed, git)` - `<utc_ts>_<model>_seed<seed>_<shortsha>` (non-pure: samples wall clock)
 - `utc_now_iso()` - ISO-8601 UTC timestamp
 - `sha256_file(path)` - streaming SHA-256 of a file (used by `InjectedDataset.describe`)
 
 ## Run Artifacts
 
-Every `cadfd train` invocation creates a dedicated run directory; runs are never overwritten.
+Every `cesta train` invocation creates a dedicated run directory; runs are never overwritten.
 
 ```
 runs/<model>/<utc_ts>_<model>_seed<seed>_<shortsha>/
@@ -89,7 +89,7 @@ runs/<model>/<utc_ts>_<model>_seed<seed>_<shortsha>/
 └── predictions.npz        # y_true, y_pred (int32), y_prob (float32)
 ```
 
-`cadfd evaluate` writes the same artifacts (plus a `kind="evaluate"` `manifest.json`) into a new run subdirectory when `--output` is provided; otherwise it writes in-place alongside the loaded model.
+`cesta evaluate` writes the same artifacts (plus a `kind="evaluate"` `manifest.json`) into a new run subdirectory when `--output` is provided; otherwise it writes in-place alongside the loaded model.
 
 ## Configuration Design Pattern
 
@@ -191,7 +191,7 @@ firmware/
 
 ### MQTT Payload
 
-Publishes JSON to `cafd/readings/<device_id>` every 30s:
+Publishes JSON to `cesta/readings/<device_id>` every 30s:
 ```json
 {"device_id": "esp32_01", "timestamp": 1718000000, "temperature": 25.3, "humidity": 60.1}
 ```
@@ -203,7 +203,7 @@ Requires `espup` (Rust ESP toolchain) and `espflash`:
 cd firmware
 cargo check
 cargo build --release
-espflash flash target/xtensa-esp32s3-espidf/release/cafd-firmware --monitor
+espflash flash target/xtensa-esp32s3-espidf/release/cesta-firmware --monitor
 ```
 
 ### Lab Server Stack
@@ -213,15 +213,15 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommende
 - **Telegraf** — MQTT → InfluxDB bridge
 - **InfluxDB** — Time-series storage
 - **Grafana** — Dashboard
-- **Python MQTT subscriber** — Export to `data/raw/esp32_dht11/` CSV for CADFD pipeline
+- **Python MQTT subscriber** — Export to `data/raw/esp32_dht11/` CSV for CESTA pipeline
 
 ## Workflow
 
-1. **Fault Injection**: `uv run cadfd inject intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
-2. **Graph Preparation** (optional): `uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
-3. **Training**: `uv run cadfd train config/model/lstm.yaml data/injected/intel_lab`
-4. **Hyperparameter Search** (optional): `uv run cadfd optimize --data data/injected/intel_lab --model lstm --n-trials 20 --epochs 10`
-5. **Evaluation**: `uv run cadfd evaluate --model runs/lstm/<run_id> --data data/injected/intel_lab`
+1. **Fault Injection**: `uv run cesta inject intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
+2. **Graph Preparation** (optional): `uv run cesta prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
+3. **Training**: `uv run cesta train config/model/lstm.yaml data/injected/intel_lab`
+4. **Hyperparameter Search** (optional): `uv run cesta optimize --data data/injected/intel_lab --model lstm --n-trials 20 --epochs 10`
+5. **Evaluation**: `uv run cesta evaluate --model runs/lstm/<run_id> --data data/injected/intel_lab`
 
 ## Optimization Module (`optimization/`)
 
@@ -241,17 +241,17 @@ the configured validation metric back to Optuna.
   `modern_tcn`, `stgcn`. `suggest_train_hyperparams` covers shared training
   knobs. Use `register_search_space(name, fn)` to add new model spaces.
 - Studies persist to `OptimizeConfig.storage` (default `sqlite:///optuna.db`)
-  under `OptimizeConfig.resolved_study_name()` (default `cadfd-<model>`),
+  under `OptimizeConfig.resolved_study_name()` (default `cesta-<model>`),
   so runs can be resumed (`load_if_exists=True`).
 
 ### CLI
 
 ```
-cadfd optimize --data <dir> [--model lstm] [--n-trials N] [--epochs E]
+cesta optimize --data <dir> [--model lstm] [--n-trials N] [--epochs E]
                [--metric val_loss|val_macro_f1|val_acc] [--sampler tpe|random]
                [--pruner median|none] [--study-name NAME] [--storage URL]
                [--timeout SECONDS] [--seed S] [--output best_params.json]
-cadfd optimize show <study_name> [--storage URL] [--top K]
+cesta optimize show <study_name> [--storage URL] [--top K]
 ```
 
 The `--metric` option auto-aligns the study direction (`val_loss` →
@@ -263,7 +263,7 @@ minimize, others → maximize). The selected metric must be available in
 The CLI uses **Typer** with a centralized command namespace:
 
 ```
-cadfd                    # Main entry point
+cesta                    # Main entry point
 ├── inject              # Run fault injection
 ├── prepare             # Data preparation subcommands
 │   └── graph           # Add graph topology to injected dataset
@@ -275,7 +275,7 @@ cadfd                    # Main entry point
 └── list                # List datasets, models, metrics, or runs
 ```
 
-Run `cadfd --help` or `cadfd <subcommand> --help` for detailed options.
+Run `cesta --help` or `cesta <subcommand> --help` for detailed options.
 
 ## Adding New Fault Types
 
@@ -304,7 +304,7 @@ Per-event randomization and per-mote scaling are first-class:
 
 ## Adding New Datasets
 
-1. Implement a new dataset class in `src/CADFD/datasets/raw/` subclassing `BaseDataset`.
+1. Implement a new dataset class in `src/CESTA/datasets/raw/` subclassing `BaseDataset`.
 2. Implement: `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`.
 3. Add it to `_DATASET_LOADERS` in `datasets/raw/__init__.py`.
 

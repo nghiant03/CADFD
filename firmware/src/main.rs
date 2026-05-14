@@ -13,7 +13,7 @@ fn main() {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    info!("[CAFD] Device {} starting", config::DEVICE_ID);
+    info!("[CESTA] Device {} starting", config::DEVICE_ID);
 
     let _peripherals = esp_idf_hal::peripherals::Peripherals::take().unwrap();
     let dht_pin = unsafe { esp_idf_hal::gpio::AnyIOPin::new(config::DHT_PIN) };

@@ -1,4 +1,4 @@
-# CADFD: Communication-Aware Distributed Fault Diagnosis
+# CESTA: Communication-Efficient Spatial-Temporal Aggregation
 
 ## Overview
 
@@ -8,7 +8,7 @@ A research framework for **sensor fault diagnosis** using deep learning on time-
 
 - **Markov-chain fault injection** — Simulates realistic sensor faults (spike, drift, stuck) with configurable transition probabilities and durations
 - **Temporal models** — CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST, ModernTCN
-- **Spatio-temporal models** — ST-GCN with graph-based sensor topology and per-node classification
+- **Spatio-temporal models** — ST-GCN and CESTA with graph-based sensor topology, dynamic edge masks, and per-node classification
 - **Focal loss & oversampling** — Handles class imbalance common in fault diagnosis datasets
 - **Optuna hyperparameter optimization** — Automated sweep with configurable trials and storage
 - **ESP32-S3 firmware** — Rust firmware for real-world DHT11 sensor data collection via MQTT; see [`firmware/README.md`](firmware/README.md)
@@ -23,8 +23,8 @@ A research framework for **sensor fault diagnosis** using deep learning on time-
 ### Installation
 
 ```bash
-git clone https://github.com/Sinner/CAFD.git
-cd CAFD
+git clone https://github.com/Sinner/CESTA.git
+cd CESTA
 uv sync
 ```
 
@@ -32,25 +32,25 @@ uv sync
 
 ```bash
 # 1. Inject faults into raw sensor data
-uv run cadfd inject intel_lab data/raw/Intel/data.txt data/injected/intel_lab
+uv run cesta inject intel_lab data/raw/Intel/data.txt data/injected/intel_lab
 
 # 2. (Optional) Add graph topology for spatio-temporal models
-uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt
+uv run cesta prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt
 
 # 3. Train a model
-uv run cadfd train config/model/lstm.yaml data/injected/intel_lab
+uv run cesta train config/model/lstm.yaml data/injected/intel_lab
 
 # 4. Evaluate
-uv run cadfd evaluate --model models/lstm --data data/injected/intel_lab
+uv run cesta evaluate --model runs/lstm/<run_id> --data data/injected/intel_lab
 
 # 5. (Optional) Hyperparameter optimization
-uv run cadfd optimize --data data/injected/intel_lab --n-trials 100
+uv run cesta optimize --data data/injected/intel_lab --n-trials 100
 ```
 
 ## Project Structure
 
 ```
-src/CADFD/
+src/CESTA/
 ├── schema/            # Pydantic config models
 ├── cli/               # Typer CLI (inject, prepare, train, evaluate, optimize)
 ├── injection/         # Markov generator, fault injectors, registry
@@ -59,7 +59,7 @@ src/CADFD/
 │   └── injected/      # InjectedDataset, GraphDataset, windowing
 ├── models/
 │   ├── temporal/      # CNN1D, LSTM, GRU, Transformer, Autoformer, Informer, PatchTST, ModernTCN
-│   └── spatial/       # ST-GCN
+│   └── spatial/       # ST-GCN, CESTA
 ├── training/          # Trainer, focal loss, oversampling, callbacks
 ├── evaluation/        # Metrics, evaluator
 ├── optimization/      # Optuna sweep
@@ -73,7 +73,7 @@ data/                  # Raw datasets and injected outputs
 ## CLI
 
 ```
-cadfd
+cesta
 ├── inject              # Run fault injection on a dataset
 ├── prepare
 │   └── graph           # Add graph topology to injected dataset
@@ -81,10 +81,11 @@ cadfd
 ├── evaluate            # Evaluate a trained model
 ├── optimize            # Run Optuna hyperparameter optimization
 │   └── show            # Display study results
+├── report              # Aggregate run artifacts into comparison reports
 └── list                # List datasets, models, metrics, or runs
 ```
 
-Run `uv run cadfd --help` for full options.
+Run `uv run cesta --help` for full options.
 
 ## Fault Types
 
@@ -102,7 +103,7 @@ Fault sequences are generated via a **Markov chain** with configurable transitio
 Training configs are YAML files in `config/model/`:
 
 ```bash
-uv run cadfd train config/model/lstm.yaml data/injected/intel_lab
+uv run cesta train config/model/lstm.yaml data/injected/intel_lab
 ```
 
 Large command surfaces use config files validated directly by Pydantic. Small utility commands define direct CLI defaults.
@@ -123,7 +124,7 @@ uv run pyright src/             # Type check
 
 ### Add a new dataset
 
-1. Subclass `BaseDataset` in `src/CADFD/datasets/raw/`
+1. Subclass `BaseDataset` in `src/CESTA/datasets/raw/`
 2. Implement `name`, `feature_columns`, `group_column`, `timestamp_column`, `load()`, `preprocess()`
 3. Add it to `_DATASET_LOADERS` in `datasets/raw/__init__.py`
 

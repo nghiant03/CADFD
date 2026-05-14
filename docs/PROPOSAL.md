@@ -159,7 +159,7 @@ z_i,1:T = Fusion(h_i,1:T, a_i,1:T)
 y_i,1:T = Classifier(z_i,1:T)
 ```
 
-The output remains many-to-many per node and timestep to match current CADFD graph-model evaluation:
+The output remains many-to-many per node and timestep to match current CESTA graph-model evaluation:
 
 ```text
 (batch, window_size, num_nodes, num_classes)
