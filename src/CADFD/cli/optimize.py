@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Optional
 
 import typer
 
@@ -12,8 +12,6 @@ from CADFD.logging import logger
 from CADFD.schema import OptimizeConfig
 
 app = typer.Typer(no_args_is_help=True, invoke_without_command=True)
-
-_defaults = OptimizeConfig()
 
 
 @app.callback()
@@ -24,48 +22,48 @@ def optimize(
         typer.Option("--data", "-d", help="Path to injected dataset directory"),
     ] = None,
     model: Annotated[
-        Optional[str],
-        typer.Option("--model", "-m", help=f"Model architecture (default: {_defaults.model})"),
-    ] = None,
+        str,
+        typer.Option("--model", "-m", help="Model architecture"),
+    ] = "lstm",
     n_trials: Annotated[
-        Optional[int],
-        typer.Option("--n-trials", "-n", help=f"Number of trials (default: {_defaults.n_trials})"),
-    ] = None,
+        int,
+        typer.Option("--n-trials", "-n", help="Number of trials"),
+    ] = 20,
     timeout: Annotated[
         Optional[int],
         typer.Option("--timeout", "-t", help="Optimization timeout in seconds"),
     ] = None,
     epochs: Annotated[
-        Optional[int],
-        typer.Option("--epochs", "-e", help=f"Epochs per trial (default: {_defaults.epochs})"),
-    ] = None,
+        int,
+        typer.Option("--epochs", "-e", help="Epochs per trial"),
+    ] = 20,
     metric: Annotated[
-        Optional[str],
+        str,
         typer.Option(
             "--metric",
-            help=f"Metric to optimize: val_loss|val_macro_f1|val_acc (default: {_defaults.metric})",
+            help="Metric to optimize: val_loss|val_macro_f1|val_acc",
         ),
-    ] = None,
+    ] = "val_loss",
     sampler: Annotated[
-        Optional[str],
-        typer.Option("--sampler", help=f"Sampler: tpe|random (default: {_defaults.sampler})"),
-    ] = None,
+        str,
+        typer.Option("--sampler", help="Sampler: tpe|random"),
+    ] = "tpe",
     pruner: Annotated[
-        Optional[str],
-        typer.Option("--pruner", help=f"Pruner: median|none (default: {_defaults.pruner})"),
-    ] = None,
+        str,
+        typer.Option("--pruner", help="Pruner: median|none"),
+    ] = "median",
     study_name: Annotated[
         Optional[str],
         typer.Option("--study-name", help="Optuna study name (default: cadfd-<model>)"),
     ] = None,
     storage: Annotated[
-        Optional[str],
-        typer.Option("--storage", help=f"Optuna storage URL (default: {_defaults.storage})"),
-    ] = None,
+        str,
+        typer.Option("--storage", help="Optuna storage URL"),
+    ] = "sqlite:///optuna.db",
     seed: Annotated[
-        Optional[int],
-        typer.Option("--seed", "-s", help=f"Random seed (default: {_defaults.seed})"),
-    ] = None,
+        int,
+        typer.Option("--seed", "-s", help="Random seed"),
+    ] = 42,
     output: Annotated[
         Optional[Path],
         typer.Option("--output", "-o", help="Path to write best params as JSON"),
@@ -81,33 +79,19 @@ def optimize(
     if data is None:
         raise typer.BadParameter("Missing option '--data'.")
 
-    overrides: dict[str, Any] = {}
-    if model is not None:
-        overrides["model"] = model
-    if n_trials is not None:
-        overrides["n_trials"] = n_trials
-    if timeout is not None:
-        overrides["timeout"] = timeout
-    if epochs is not None:
-        overrides["epochs"] = epochs
-    if metric is not None:
-        overrides["metric"] = metric
-        # Auto-align direction with the metric.
-        overrides["direction"] = "minimize" if metric == "val_loss" else "maximize"
-    if sampler is not None:
-        overrides["sampler"] = sampler
-    if pruner is not None:
-        overrides["pruner"] = pruner
-    if study_name is not None:
-        overrides["study_name"] = study_name
-    if storage is not None:
-        overrides["storage"] = storage
-    if seed is not None:
-        overrides["seed"] = seed
-    if features:
-        overrides["features"] = features
-
-    config = OptimizeConfig(**overrides)
+    config = OptimizeConfig(
+        model=model,
+        n_trials=n_trials,
+        timeout=timeout,
+        epochs=epochs,
+        metric=metric,
+        sampler=sampler,
+        pruner=pruner,
+        study_name=study_name,
+        storage=storage,
+        seed=seed,
+        features=features,
+    )
     logger.debug("OptimizeConfig: {}", config.to_dict())
 
     from CADFD.optimization import Optimizer
@@ -143,9 +127,9 @@ def optimize_show(
         typer.Argument(help="Name of the study to show"),
     ],
     storage: Annotated[
-        Optional[str],
-        typer.Option("--storage", help=f"Optuna storage URL (default: {_defaults.storage})"),
-    ] = None,
+        str,
+        typer.Option("--storage", help="Optuna storage URL"),
+    ] = "sqlite:///optuna.db",
     top: Annotated[
         int,
         typer.Option("--top", "-k", help="Number of top trials to display"),
@@ -156,8 +140,7 @@ def optimize_show(
     from rich.console import Console
     from rich.table import Table
 
-    resolved_storage = storage if storage is not None else _defaults.storage
-    study = optuna.load_study(study_name=study_name, storage=resolved_storage)
+    study = optuna.load_study(study_name=study_name, storage=storage)
 
     console = Console()
     direction = study.direction.name.lower()

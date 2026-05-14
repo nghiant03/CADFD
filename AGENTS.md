@@ -93,27 +93,27 @@ runs/<model>/<utc_ts>_<model>_seed<seed>_<shortsha>/
 
 ## Configuration Design Pattern
 
-**Single Source of Truth (SSOT)**: All default values live exclusively in Pydantic schema classes (`schema/config.py`, `schema/fault.py`, `schema/window.py`). CLI modules use `None` as default and fall back to schema defaults.
+Avoid constructing large runtime settings by layering many optional CLI values over schema-created config objects. Large command surfaces should be config-file-first. Small command surfaces may define direct Typer defaults when each option is simple and local.
 
 **Pattern**:
 ```python
-# CLI: Use None defaults
 @app.command()
-def run(
-    window_size: Optional[int] = None,  # NOT = 60
+def train(config: Path, data: Path):
+    train_config = TrainConfig.model_validate(load_config_file(config))
+```
+
+For small commands:
+```python
+@app.command()
+def show(top: int = 10):
     ...
-):
-    defaults = WindowConfig()
-    config = WindowConfig(
-        window_size=window_size if window_size is not None else defaults.window_size,
-    )
 ```
 
 **Rationale**:
-- Prevents value drift between CLI and schema
-- Single place to update defaults
-- Schema classes document the canonical defaults
-- CLI `--help` can reference schema or show "default: from config"
+- Avoids duplicated CLI/schema merge logic
+- Keeps complex experiment settings reproducible in checked config files
+- Keeps small utility commands ergonomic
+- Makes validation explicit at config-file boundaries
 
 ## Datasets Module (`datasets/`)
 
@@ -219,7 +219,7 @@ ESP32 devices connect via WiFi to an on-prem MQTT broker (Mosquitto). Recommende
 
 1. **Fault Injection**: `uv run cadfd inject intel_lab data/raw/Intel/data.txt data/injected/intel_lab`
 2. **Graph Preparation** (optional): `uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt`
-3. **Training**: `uv run cadfd train lstm data/injected/intel_lab` or with config: `uv run cadfd train lstm data/injected/intel_lab --config config/lstm.yaml`
+3. **Training**: `uv run cadfd train config/model/lstm.yaml data/injected/intel_lab`
 4. **Hyperparameter Search** (optional): `uv run cadfd optimize --data data/injected/intel_lab --model lstm --n-trials 20 --epochs 10`
 5. **Evaluation**: `uv run cadfd evaluate --model runs/lstm/<run_id> --data data/injected/intel_lab`
 
@@ -327,33 +327,11 @@ To add a new model that needs special metadata:
 
 ## CLI Options (inject run)
 
-CLI options use `None` defaults; actual defaults come from schema classes.
+Large injection settings live in YAML/JSON config files and are validated directly with Pydantic.
 
 ```
 DATASET                Dataset name (required positional argument)
 DATA_PATH              Path to raw data file (required positional argument)
-OUTPUT                 Output path for .npz file (required positional argument)
--s, --seed             Random seed for reproducibility
---resample-freq        Resampling frequency (default from InjectionConfig: 30s)
--t, --target-features  Features to inject faults into
--a, --all-features     All features to include in output
--w, --window-size      Window size in timesteps (default from WindowConfig: 60)
---train-stride         Stride for training windows (default from WindowConfig: 10)
---evaluation-stride    Stride for held-out windows (default from WindowConfig: 60)
---spike-prob           Transition probability to spike (default from MarkovConfig)
---spike-duration       Average spike duration (default from MarkovConfig)
---spike-magnitude-min  Minimum absolute spike offset (default from MarkovConfig)
---spike-magnitude-max  Maximum absolute spike offset (default from MarkovConfig)
---spike-sigma-min      Min sigma multiplier on per-mote std (overrides absolute)
---spike-sigma-max      Max sigma multiplier on per-mote std
---drift-prob           Transition probability to drift (default from MarkovConfig)
---drift-duration       Average drift duration (default from MarkovConfig)
---drift-rate-min       Minimum absolute drift rate per timestep
---drift-rate-max       Maximum absolute drift rate per timestep
---drift-sigma-min      Min sigma multiplier on per-mote std (overrides absolute)
---drift-sigma-max      Max sigma multiplier on per-mote std
---stuck-prob           Transition probability to stuck (default from MarkovConfig)
---stuck-duration       Average stuck duration (default from MarkovConfig)
---stuck-jitter-sigma-factor  Sigma fraction for stuck-with-noise jitter
--c, --config           Path to JSON config file (CLI args override)
+OUTPUT                 Output path for injected dataset directory (required positional argument)
+-c, --config           Path to YAML/JSON injection config file
 ```

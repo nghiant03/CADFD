@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -19,6 +19,7 @@ from CADFD.schema import (
     Timing,
     TrainConfig,
 )
+from CADFD.schema.config import load_config_file
 from CADFD.schema.fault import FaultType
 from CADFD.training import (
     CheckpointCallback,
@@ -35,117 +36,31 @@ from CADFD.utils import (
     utc_now_iso,
 )
 
-_FIELD_DEFAULTS = TrainConfig.model_fields
-
-
-def _field_default(name: str) -> object:
-    """Get the default value for a TrainConfig field."""
-    return _FIELD_DEFAULTS[name].default
-
 
 def train(
-    model: Annotated[
-        str,
-        typer.Argument(help="Model architecture"),
+    config_file: Annotated[
+        Path,
+        typer.Argument(help="Path to YAML/JSON training config file"),
     ],
     data: Annotated[
         Path,
         typer.Argument(help="Path to injected dataset directory"),
     ],
-    epochs: Annotated[
-        Optional[int],
-        typer.Option("--epochs", "-e", help=f"Training epochs (default: {_field_default('epochs')})"),
-    ] = None,
-    batch_size: Annotated[
-        Optional[int],
-        typer.Option("--batch-size", "-b", help=f"Batch size (default: {_field_default('batch_size')})"),
-    ] = None,
-    learning_rate: Annotated[
-        Optional[float],
-        typer.Option("--lr", help=f"Learning rate (default: {_field_default('learning_rate')})"),
-    ] = None,
-    use_focal_loss: Annotated[
-        Optional[bool],
-        typer.Option("--focal-loss/--no-focal-loss", help="Use focal loss instead of cross-entropy"),
-    ] = None,
-    focal_gamma: Annotated[
-        Optional[float],
-        typer.Option("--focal-gamma", help=f"Focal loss gamma (default: {_field_default('focal_gamma')})"),
-    ] = None,
-    oversample: Annotated[
-        Optional[bool],
-        typer.Option("--oversample/--no-oversample", help="Oversample minority classes"),
-    ] = None,
-    oversample_ratio: Annotated[
-        Optional[float],
-        typer.Option(
-            "--oversample-ratio",
-            help=f"Target minority/majority ratio (default: {_field_default('oversample_ratio')})",
-        ),
-    ] = None,
-    val_ratio: Annotated[
-        Optional[float],
-        typer.Option(
-            "--val-ratio",
-            help=f"Fraction of training data for validation (default: {_field_default('val_ratio')})",
-        ),
-    ] = None,
-    early_stopping: Annotated[
-        Optional[bool],
-        typer.Option("--early-stopping/--no-early-stopping", help="Enable early stopping"),
-    ] = None,
     output: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--output",
             "-o",
             help="Parent directory for runs (default: runs/<model>). A new run subdirectory is created per invocation.",
         ),
     ] = None,
-    seed: Annotated[
-        Optional[int],
-        typer.Option("--seed", "-s", help=f"Random seed (default: {_field_default('seed')})"),
-    ] = None,
-    features: Annotated[
-        Optional[list[str]],
-        typer.Option("--features", "-f", help="Feature(s) to train on (default: all)"),
-    ] = None,
-    config_file: Annotated[
-        Optional[Path],
-        typer.Option("--config", "-c", help="Path to YAML config file"),
-    ] = None,
+    early_stopping: Annotated[
+        bool,
+        typer.Option("--early-stopping/--no-early-stopping", help="Enable early stopping"),
+    ] = False,
 ) -> None:
     """Train a fault diagnosis model."""
-    if config_file is not None:
-        config = TrainConfig.from_yaml(config_file)
-        config = config.model_copy(update={"model": model})
-    else:
-        config = TrainConfig(model=model)
-
-    cli_overrides: dict[str, object] = {}
-    if epochs is not None:
-        cli_overrides["epochs"] = epochs
-    if batch_size is not None:
-        cli_overrides["batch_size"] = batch_size
-    if learning_rate is not None:
-        cli_overrides["learning_rate"] = learning_rate
-    if use_focal_loss is not None:
-        cli_overrides["use_focal_loss"] = use_focal_loss
-    if focal_gamma is not None:
-        cli_overrides["focal_gamma"] = focal_gamma
-    if oversample is not None:
-        cli_overrides["oversample"] = oversample
-    if oversample_ratio is not None:
-        cli_overrides["oversample_ratio"] = oversample_ratio
-    if val_ratio is not None:
-        cli_overrides["val_ratio"] = val_ratio
-    if seed is not None:
-        cli_overrides["seed"] = seed
-    if features is not None:
-        cli_overrides["features"] = features
-
-    if cli_overrides:
-        config = config.model_copy(update=cli_overrides)
+    config = TrainConfig.model_validate(load_config_file(config_file))
     logger.debug("TrainConfig: {}", config.to_dict())
 
     logger.info("Loading data from: {}", data)
@@ -184,9 +99,7 @@ def train(
         metadata=prepared.metadata,
         **config.model_kwargs,
     )
-    logger.info(
-        "Model: {} ({:,} parameters)", net.name, net.count_parameters()
-    )
+    logger.info("Model: {} ({:,} parameters)", net.name, net.count_parameters())
 
     output_root = output if output is not None else Path(f"runs/{config.model}")
     git = collect_git_info()
@@ -206,11 +119,7 @@ def train(
     ]
 
     if early_stopping:
-        callbacks.append(
-            EarlyStoppingCallback(
-                patience=10, monitor=config.early_stopping_monitor
-            )
-        )
+        callbacks.append(EarlyStoppingCallback(patience=10, monitor=config.early_stopping_monitor))
 
     trainer = Trainer(config=config, callbacks=callbacks)
 
@@ -259,9 +168,7 @@ def train(
             net.load_state_dict(torch.load(weight_path, map_location=trainer.device))
             logger.info("Reloaded best checkpoint from {} for test evaluation", weight_path)
         else:
-            logger.warning(
-                "No checkpoint at {}; evaluating final-epoch weights", weight_path
-            )
+            logger.warning("No checkpoint at {}; evaluating final-epoch weights", weight_path)
         evaluator = Evaluator(
             config=EvaluateConfig(batch_size=config.batch_size),
             device=str(trainer.device),

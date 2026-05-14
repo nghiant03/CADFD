@@ -91,7 +91,3 @@ class RunManifest(BaseModel):
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> RunManifest:
-        return cls.model_validate(data)

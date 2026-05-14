@@ -1,4 +1,4 @@
-"""Backward-compatible schema primitive exports."""
+"""Schema primitive exports."""
 
 from CADFD.schema.fault import FaultConfig, FaultType, MarkovConfig
 from CADFD.schema.window import WindowConfig

@@ -38,7 +38,7 @@ uv run cadfd inject intel_lab data/raw/Intel/data.txt data/injected/intel_lab
 uv run cadfd prepare graph data/injected/intel_lab data/raw/Intel/connectivity.txt
 
 # 3. Train a model
-uv run cadfd train lstm data/injected/intel_lab
+uv run cadfd train config/model/lstm.yaml data/injected/intel_lab
 
 # 4. Evaluate
 uv run cadfd evaluate --model models/lstm --data data/injected/intel_lab
@@ -99,13 +99,13 @@ Fault sequences are generated via a **Markov chain** with configurable transitio
 
 ## Configuration
 
-Training configs are YAML files in `config/`:
+Training configs are YAML files in `config/model/`:
 
 ```bash
-uv run cadfd train lstm data/injected/intel_lab --config config/lstm.yaml
+uv run cadfd train config/model/lstm.yaml data/injected/intel_lab
 ```
 
-All defaults are defined in Pydantic schema classes (`src/CADFD/schema/`). CLI arguments override config file values, which override schema defaults.
+Large command surfaces use config files validated directly by Pydantic. Small utility commands define direct CLI defaults.
 
 ## Firmware
 

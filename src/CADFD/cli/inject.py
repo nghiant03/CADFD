@@ -7,6 +7,7 @@ import typer
 
 from CADFD.logging import logger
 from CADFD.schema import InjectionConfig
+from CADFD.schema.config import load_config_file
 from CADFD.seed import seed_everything
 
 
@@ -28,12 +29,8 @@ def inject(
         typer.Option(
             "--config",
             "-c",
-            help="Path to YAML/JSON injection config file (defaults to InjectionConfig() when omitted)",
+            help="Path to YAML/JSON injection config file",
         ),
-    ] = None,
-    seed: Annotated[
-        Optional[int],
-        typer.Option("--seed", "-s", help="Override seed from config"),
     ] = None,
 ) -> None:
     """Run fault injection on a dataset.
@@ -45,25 +42,7 @@ def inject(
     from CADFD.datasets import get_dataset
     from CADFD.injection import FaultInjector
 
-    if config is None:
-        injection_config = InjectionConfig()
-    else:
-        suffix = config.suffix.lower()
-        if suffix in {".yaml", ".yml"}:
-            injection_config = InjectionConfig.from_yaml(config)
-        elif suffix == ".json":
-            import json
-            with config.open() as fh:
-                injection_config = InjectionConfig.from_dict(json.load(fh))
-        else:
-            msg = f"Unsupported config extension: {config.suffix}"
-            raise typer.BadParameter(msg)
-
-    if seed is not None:
-        injection_config = injection_config.model_copy(update={"seed": seed})
-        injection_config = injection_config.model_copy(
-            update={"markov": injection_config.markov.model_copy(update={"seed": seed})}
-        )
+    injection_config = InjectionConfig.model_validate(load_config_file(config)) if config is not None else InjectionConfig()
 
     logger.info("Loading dataset: {}", dataset)
     ds = get_dataset(dataset, data_path)

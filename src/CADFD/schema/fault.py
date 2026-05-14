@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import IntEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class FaultType(IntEnum):
@@ -58,6 +58,13 @@ class FaultConfig(BaseModel):
     average_duration: int = Field(default=10, ge=1)
     params: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("fault_type", mode="before")
+    @classmethod
+    def _parse_fault_type(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return FaultType.from_string(value)
+        return value
+
     def return_prob(self) -> float:
         """Probability of returning to NORMAL at each timestep."""
         return 1.0 / self.average_duration
@@ -70,16 +77,6 @@ class FaultConfig(BaseModel):
             "average_duration": self.average_duration,
             "params": self.params,
         }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "FaultConfig":
-        """Reconstruct from dictionary."""
-        return cls(
-            fault_type=FaultType.from_string(data["fault_type"]),
-            transition_prob=data["transition_prob"],
-            average_duration=data["average_duration"],
-            params=data.get("params", {}),
-        )
 
 
 class MarkovConfig(BaseModel):
@@ -147,14 +144,3 @@ class MarkovConfig(BaseModel):
             "seed": self.seed,
             "fault_configs": [cfg.to_dict() for cfg in self.fault_configs],
         }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MarkovConfig":
-        """Reconstruct from dictionary."""
-        fault_configs = [
-            FaultConfig.from_dict(fc) for fc in data.get("fault_configs", [])
-        ]
-        return cls(
-            fault_configs=fault_configs if fault_configs else [],
-            seed=data.get("seed"),
-        )

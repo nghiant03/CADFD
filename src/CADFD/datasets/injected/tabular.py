@@ -68,7 +68,7 @@ class InjectedDataset:
 
         meta_path = directory / "injected_meta.json"
         meta = json.loads(meta_path.read_text())
-        config = InjectionConfig.from_dict(meta["config"])
+        config = InjectionConfig.model_validate(meta["config"])
         feature_names: list[str] = meta["feature_names"]
 
         df = pd.read_csv(directory / "injected_data.csv")

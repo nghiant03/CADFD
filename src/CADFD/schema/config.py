@@ -2,20 +2,41 @@
 
 This module defines configuration classes for all pipeline phases:
 injection, training, evaluation, and optimization.
-
-Each config class owns its default values (Single Source of Truth).
-CLI modules should use None defaults and fall back to these schema defaults.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from CADFD.schema.fault import FaultType, MarkovConfig
 from CADFD.schema.window import WindowConfig
+
+
+def load_config_file(path: str | Path) -> dict[str, Any]:
+    """Load a YAML or JSON config file as raw mapping data."""
+    resolved = Path(path)
+    if not resolved.exists():
+        msg = f"Config file not found: {resolved}"
+        raise FileNotFoundError(msg)
+
+    suffix = resolved.suffix.lower()
+    if suffix in {".yaml", ".yml"}:
+        raw = yaml.safe_load(resolved.read_text()) or {}
+    elif suffix == ".json":
+        raw = json.loads(resolved.read_text())
+    else:
+        msg = f"Unsupported config extension: {resolved.suffix}"
+        raise ValueError(msg)
+
+    if not isinstance(raw, dict):
+        msg = f"Config file must contain a mapping: {resolved}"
+        raise ValueError(msg)
+    return raw
 
 
 class InjectionConfig(BaseModel):
@@ -40,9 +61,7 @@ class InjectionConfig(BaseModel):
     window: WindowConfig = Field(default_factory=WindowConfig)
     resample_freq: str = "5min"
     target_features: list[str] = Field(default_factory=lambda: ["temp"])
-    all_features: list[str] = Field(
-        default_factory=lambda: ["temp", "humid", "light", "volt"]
-    )
+    all_features: list[str] = Field(default_factory=lambda: ["temp", "humid", "light", "volt"])
     interpolation_method: str = "linear"
     group_column: str = "moteid"
     seed: int | None = None
@@ -71,43 +90,6 @@ class InjectionConfig(BaseModel):
             "seed": self.seed,
             "fault_type_mapping": {ft.name: ft.value for ft in FaultType},
         }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "InjectionConfig":
-        """Reconstruct from dictionary."""
-        defaults = cls()
-        return cls(
-            markov=MarkovConfig.from_dict(data.get("markov", {})),
-            window=WindowConfig.from_dict(data.get("window", {})),
-            resample_freq=data.get("resample_freq", defaults.resample_freq),
-            target_features=data.get("target_features", defaults.target_features),
-            all_features=data.get("all_features", defaults.all_features),
-            interpolation_method=data.get(
-                "interpolation_method", defaults.interpolation_method
-            ),
-            group_column=data.get("group_column", defaults.group_column),
-            seed=data.get("seed", defaults.seed),
-        )
-
-    @classmethod
-    def from_yaml(cls, path: str | Path) -> "InjectionConfig":
-        """Load injection configuration from a YAML file.
-
-        The YAML file mirrors the structure produced by :meth:`to_dict`.
-        Tuple-like values (e.g. ``magnitude_range: [a, b]``) may be written
-        as YAML lists.
-        """
-        import yaml
-
-        resolved = Path(path)
-        if not resolved.exists():
-            msg = f"Injection config file not found: {resolved}"
-            raise FileNotFoundError(msg)
-
-        with resolved.open() as fh:
-            raw = yaml.safe_load(fh) or {}
-
-        return cls.from_dict(raw)
 
 
 class TrainConfig(BaseModel):
@@ -167,6 +149,20 @@ class TrainConfig(BaseModel):
     seed: int = 42
     model_kwargs: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_config_file_sections(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "train" in data:
+            train_section = data.get("train") or {}
+            if not isinstance(train_section, dict):
+                msg = "Train config 'train' section must be a mapping"
+                raise ValueError(msg)
+            merged = dict(train_section)
+            if "model_kwargs" in data:
+                merged["model_kwargs"] = data["model_kwargs"]
+            return merged
+        return data
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -194,93 +190,6 @@ class TrainConfig(BaseModel):
             "model_kwargs": self.model_kwargs,
         }
 
-    @classmethod
-    def from_yaml(cls, path: str | Path) -> "TrainConfig":
-        """Load configuration from a YAML file.
-
-        The YAML file should contain a ``train`` section for training
-        parameters and an optional ``model_kwargs`` section for
-        model-specific architecture parameters.
-
-        Args:
-            path: Path to the YAML configuration file.
-
-        Returns:
-            Populated TrainConfig instance.
-
-        Raises:
-            FileNotFoundError: If the YAML file does not exist.
-        """
-        import yaml
-
-        resolved = Path(path)
-        if not resolved.exists():
-            msg = f"Config file not found: {resolved}"
-            raise FileNotFoundError(msg)
-
-        with resolved.open() as fh:
-            raw = yaml.safe_load(fh) or {}
-
-        train_section = raw.get("train", {})
-        model_kwargs_section = raw.get("model_kwargs", {})
-
-        merged: dict[str, Any] = {**train_section}
-        if model_kwargs_section:
-            merged["model_kwargs"] = model_kwargs_section
-
-        return cls.from_dict(merged)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TrainConfig":
-        """Reconstruct from dictionary."""
-        model = data.get("model")
-        if model is None:
-            msg = "'model' key is required in TrainConfig data"
-            raise ValueError(msg)
-        defaults = cls(model=model)
-        return cls(
-            model=model,
-            epochs=data.get("epochs", defaults.epochs),
-            batch_size=data.get("batch_size", defaults.batch_size),
-            learning_rate=data.get("learning_rate", defaults.learning_rate),
-            use_focal_loss=data.get("use_focal_loss", defaults.use_focal_loss),
-            focal_gamma=data.get("focal_gamma", defaults.focal_gamma),
-            focal_alpha=data.get("focal_alpha", defaults.focal_alpha),
-            oversample=data.get("oversample", defaults.oversample),
-            oversample_ratio=data.get("oversample_ratio", defaults.oversample_ratio),
-            communication_penalty_weight=data.get(
-                "communication_penalty_weight", defaults.communication_penalty_weight
-            ),
-            communication_penalty_mode=data.get(
-                "communication_penalty_mode", defaults.communication_penalty_mode
-            ),
-            target_request_ratio=data.get(
-                "target_request_ratio", defaults.target_request_ratio
-            ),
-            gate_entropy_weight=data.get(
-                "gate_entropy_weight", defaults.gate_entropy_weight
-            ),
-            gumbel_tau_start=data.get(
-                "gumbel_tau_start", defaults.gumbel_tau_start
-            ),
-            gumbel_tau_end=data.get(
-                "gumbel_tau_end", defaults.gumbel_tau_end
-            ),
-            gumbel_tau_anneal_epochs=data.get(
-                "gumbel_tau_anneal_epochs", defaults.gumbel_tau_anneal_epochs
-            ),
-            checkpoint_monitor=data.get(
-                "checkpoint_monitor", defaults.checkpoint_monitor
-            ),
-            early_stopping_monitor=data.get(
-                "early_stopping_monitor", defaults.early_stopping_monitor
-            ),
-            features=data.get("features", defaults.features),
-            val_ratio=data.get("val_ratio", defaults.val_ratio),
-            seed=data.get("seed", defaults.seed),
-            model_kwargs=data.get("model_kwargs", defaults.model_kwargs),
-        )
-
 
 class EvaluateConfig(BaseModel):
     """Configuration for model evaluation.
@@ -298,14 +207,6 @@ class EvaluateConfig(BaseModel):
         return {
             "batch_size": self.batch_size,
         }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EvaluateConfig":
-        """Reconstruct from dictionary."""
-        defaults = cls()
-        return cls(
-            batch_size=data.get("batch_size", defaults.batch_size),
-        )
 
 
 class OptimizeConfig(BaseModel):
@@ -349,6 +250,13 @@ class OptimizeConfig(BaseModel):
     load_if_exists: bool = True
     features: list[str] | None = None
 
+    @model_validator(mode="after")
+    def _align_direction_with_metric(self) -> "OptimizeConfig":
+        direction = "minimize" if self.metric == "val_loss" else "maximize"
+        if self.direction != direction:
+            object.__setattr__(self, "direction", direction)
+        return self
+
     def resolved_study_name(self) -> str:
         """Return the study name, defaulting to ``cadfd-<model>``."""
         return self.study_name if self.study_name is not None else f"cadfd-{self.model}"
@@ -377,24 +285,3 @@ class OptimizeConfig(BaseModel):
             "load_if_exists": self.load_if_exists,
             "features": self.features,
         }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OptimizeConfig":
-        """Reconstruct from dictionary."""
-        defaults = cls()
-        return cls(
-            model=data.get("model", defaults.model),
-            n_trials=data.get("n_trials", defaults.n_trials),
-            timeout=data.get("timeout", defaults.timeout),
-            seed=data.get("seed", defaults.seed),
-            storage=data.get("storage", defaults.storage),
-            study_name=data.get("study_name", defaults.study_name),
-            direction=data.get("direction", defaults.direction),
-            metric=data.get("metric", defaults.metric),
-            epochs=data.get("epochs", defaults.epochs),
-            sampler=data.get("sampler", defaults.sampler),
-            pruner=data.get("pruner", defaults.pruner),
-            startup_trials=data.get("startup_trials", defaults.startup_trials),
-            load_if_exists=data.get("load_if_exists", defaults.load_if_exists),
-            features=data.get("features", defaults.features),
-        )

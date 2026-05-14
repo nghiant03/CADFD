@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -26,8 +26,6 @@ from CADFD.utils import (
     utc_now_iso,
 )
 
-_defaults = EvaluateConfig()
-
 
 def evaluate(
     model: Annotated[
@@ -39,26 +37,24 @@ def evaluate(
         typer.Option("--data", "-d", help="Path to injected dataset directory"),
     ],
     output: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--output", "-o", help="Output directory for evaluation results"),
     ] = None,
     batch_size: Annotated[
-        Optional[int],
+        int,
         typer.Option(
             "--batch-size",
             "-b",
-            help=f"Evaluation batch size (default: {_defaults.batch_size})",
+            help="Evaluation batch size",
         ),
-    ] = None,
+    ] = 64,
 ) -> None:
     """Evaluate a trained model on test data."""
     import torch
 
     from CADFD.models.base import BaseModel
 
-    config = EvaluateConfig(
-        batch_size=batch_size if batch_size is not None else _defaults.batch_size,
-    )
+    config = EvaluateConfig(batch_size=batch_size)
 
     logger.info("Loading data from: {}", data)
     dataset = load_dataset(data)
@@ -162,7 +158,5 @@ def evaluate(
             eval_config=config.to_dict(),
             injection_config=dataset.config.to_dict(),
         )
-        (save_dir / "manifest.json").write_text(
-            json.dumps(manifest.to_dict(), indent=2)
-        )
+        (save_dir / "manifest.json").write_text(json.dumps(manifest.to_dict(), indent=2))
         logger.info("Manifest written to: {}", save_dir / "manifest.json")

@@ -36,14 +36,3 @@ class WindowConfig(BaseModel):
             "train_ratio": self.train_ratio,
             "val_ratio": self.val_ratio,
         }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WindowConfig":
-        """Reconstruct from dictionary."""
-        return cls(
-            window_size=data.get("window_size", 60),
-            train_stride=data.get("train_stride", 10),
-            test_stride=data.get("test_stride", 60),
-            train_ratio=data.get("train_ratio", 0.8),
-            val_ratio=data.get("val_ratio", 0.1),
-        )
